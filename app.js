@@ -1026,23 +1026,6 @@ function handleCtaSubmit(e) {
   }
 }
 
-function fakeGithubAuth() {
-  playSound('success');
-  alert('⚡ Authenticated as Rider via GitHub OAuth mockup!');
-  closeModal('authModal');
-}
-
-// 9. MOBILE MENU TOGGLE
-document.addEventListener('DOMContentLoaded', () => {
-  const menuBtn = document.getElementById('mobileMenuBtn');
-  const mobileMenu = document.getElementById('mobileMenu');
-  if (menuBtn && mobileMenu) {
-    menuBtn.addEventListener('click', () => {
-      mobileMenu.classList.toggle('hidden');
-    });
-  }
-});
-
 // ============================================================
 // 10. FRAI v1.0 — FRONTEND RIDERS AI EVALUATION ENGINE
 // Real-Time AST & Heuristic Deep Analysis Pipeline
@@ -2206,7 +2189,6 @@ window.openRiderModal = openRiderModal;
 window.handleProjectSubmit = handleProjectSubmit;
 window.handleHostSubmit = handleHostSubmit;
 window.handleCtaSubmit = handleCtaSubmit;
-window.fakeGithubAuth = fakeGithubAuth;
 window.loadSnippetPreset = loadSnippetPreset;
 window.updateCharCount = updateCharCount;
 window.runFRAIEvaluation = runFRAIEvaluation;
