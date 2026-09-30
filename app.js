@@ -3,8 +3,7 @@
    FRAI v1.0 - Frontend Riders AI Evaluation Engine
    ============================================================ */
 
-// Mark the app as loaded (no duplicate-load guard needed for a static site)
-window.__frontendRidersAppLoaded = true;
+(function() { // IIFE: prevents const/let collisions on re-injection; all window.xxx at the bottom expose functions globally.
 
 // Safe Icon Helper to prevent uncaught CDN errors
 function safeCreateIcons() {
@@ -2368,3 +2367,5 @@ window.copyAiRefactoredCode = copyAiRefactoredCode;
 window.copyFRAIReport = copyFRAIReport;
 window.highlightEngineMetric = highlightEngineMetric;
 window.runEngineAuditSimulation = runEngineAuditSimulation;
+
+})(); // end IIFE
