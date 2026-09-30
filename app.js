@@ -3,13 +3,7 @@
    FRAI v1.0 - Frontend Riders AI Evaluation Engine
    ============================================================ */
 
-// Guard: if this file somehow gets evaluated twice on the same page
-// (e.g. a preview/live-reload tool re-injecting the script), bail out
-// instead of throwing "Identifier has already been declared" and
-// killing every function/button on the page.
-if (window.__frontendRidersAppLoaded) {
-  console.warn('app.js already loaded — skipping duplicate execution.');
-} else {
+// Mark the app as loaded (no duplicate-load guard needed for a static site)
 window.__frontendRidersAppLoaded = true;
 
 // Safe Icon Helper to prevent uncaught CDN errors
@@ -2374,5 +2368,3 @@ window.copyAiRefactoredCode = copyAiRefactoredCode;
 window.copyFRAIReport = copyFRAIReport;
 window.highlightEngineMetric = highlightEngineMetric;
 window.runEngineAuditSimulation = runEngineAuditSimulation;
-
-} // end duplicate-load guard
