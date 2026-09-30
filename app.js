@@ -335,13 +335,19 @@ async function handleSignOut() {
 function updateAuthUI() {
   const desktopContainer = document.getElementById('desktopAuthContainer');
   const mobileContainer = document.getElementById('mobileAuthContainer');
+  const mobileSignInBtn = document.getElementById('mobileSignInBtn');
   
-  if (!desktopContainer && !mobileContainer) return;
+  if (!desktopContainer && !mobileContainer && !mobileSignInBtn) return;
   
   if (currentUser) {
     // User is logged in
     const emailPrefix = (currentUser.email || 'Developer').split('@')[0];
     
+    // Hide the persistent mobile Sign In button when logged in
+    if (mobileSignInBtn) {
+      mobileSignInBtn.style.display = 'none';
+    }
+
     if (desktopContainer) {
       desktopContainer.innerHTML = `
         <div class="flex items-center gap-4">
@@ -369,7 +375,11 @@ function updateAuthUI() {
       `;
     }
   } else {
-    // User is logged out
+    // User is logged out — show the persistent mobile Sign In button
+    if (mobileSignInBtn) {
+      mobileSignInBtn.style.display = '';
+    }
+
     if (desktopContainer) {
       desktopContainer.innerHTML = `
         <button onclick="openAuthModal('signin')" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-[#0A0F1D] transition-colors">

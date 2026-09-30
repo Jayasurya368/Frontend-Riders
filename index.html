@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0066FF" />
 
   <!-- Favicon with icon.png -->
-  <link rel="icon" type="image/png" href="icon.png" />
+  <link rel="icon" type="image/png" href="logo.png" />
 
   <!-- Open Graph / Social Media -->
   <meta property="og:title" content="FrontendRiders - Frontend Hackathons & Evaluation Engine" />
@@ -81,7 +81,7 @@
       <a href="#" class="flex items-center gap-3.5 group">
         <!-- Brand Icon Image (icon.png) -->
         <div class="relative w-11 h-11 rounded-xl bg-gradient-to-br from-blue-50 via-white to-blue-50/50 p-1 border border-blue-200 shadow-md shadow-blue-500/10 group-hover:shadow-blue-500/25 group-hover:border-[#0066FF]/50 transition-all duration-300 flex items-center justify-center overflow-hidden">
-          <img src="icon.png" alt="Frontend Riders Icon" class="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300" />
+          <img src="logo.png" alt="Frontend Riders Icon" class="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300" />
         </div>
         
         <!-- Brand Lettermark: FRONT[E]ND RIDERS matching the exact letters in the chat image -->
@@ -130,6 +130,9 @@
 
       <!-- Mobile Menu Toggle -->
       <div class="md:hidden flex items-center gap-3">
+        <button id="mobileSignInBtn" onclick="openAuthModal('signin')" class="px-3.5 py-2 text-xs font-bold text-white bg-gradient-to-r from-[#0066FF] to-[#0052CC] rounded-lg shadow-md shadow-blue-500/20 hover:shadow-blue-500/35 active:scale-95 transition-all">
+          Sign In
+        </button>
         <button id="mobileMenuBtn" class="p-2 text-slate-600 hover:text-[#0A0F1D] focus:outline-none">
           <i data-lucide="menu" class="w-6 h-6"></i>
         </button>
@@ -1160,7 +1163,7 @@
         <!-- Footer Brand (icon.png + lettermark) -->
         <div class="flex items-center gap-3.5">
           <div class="w-10 h-10 rounded-xl bg-white p-1 border border-blue-400 shadow-md flex items-center justify-center overflow-hidden">
-            <img src="icon.png" alt="Frontend Riders Icon" class="w-full h-full object-contain" />
+            <img src="logo.png" alt="Frontend Riders Icon" class="w-full h-full object-contain" />
           </div>
           <div class="flex flex-col">
             <div class="font-black text-2xl tracking-tighter text-white flex items-center leading-none">
@@ -1346,7 +1349,7 @@
 
       <!-- Brand Icon in Modal -->
       <div class="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-200 p-2 mx-auto mb-4 flex items-center justify-center shadow-sm">
-        <img src="icon.png" alt="Icon" class="w-full h-full object-contain" />
+        <img src="logo.png" alt="Icon" class="w-full h-full object-contain" />
       </div>
 
       <!-- Lettermark in Modal -->

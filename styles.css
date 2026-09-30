@@ -1,0 +1,119 @@
+/* ============================================================
+   FrontendRiders Custom Styles
+   Brand "E" Bars Effect & Global Overrides
+   ============================================================ */
+
+/* --- Brand "E" Bars Lettermark Effect ---
+   Renders the "E" in FRONT[E]ND as three stacked horizontal bars
+   with a blue-to-purple gradient, matching the logo design.        */
+
+.brand-e-bars {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 14px;
+  height: 1em;
+  margin: 0 1px;
+  position: relative;
+  top: 0px;
+  vertical-align: middle;
+}
+
+.brand-e-bars > span {
+  display: block;
+  height: 3px;
+  border-radius: 1.5px;
+  background: linear-gradient(90deg, #0066FF, #38BDF8, #8B5CF6);
+  transform-origin: left center;
+  transition: width 0.3s ease, opacity 0.3s ease;
+}
+
+/* Top bar — full width */
+.brand-e-bars > span:nth-child(1) {
+  width: 100%;
+}
+
+/* Middle bar — shorter */
+.brand-e-bars > span:nth-child(2) {
+  width: 75%;
+}
+
+/* Bottom bar — full width */
+.brand-e-bars > span:nth-child(3) {
+  width: 100%;
+}
+
+/* Hover animation on the parent link/container */
+a:hover .brand-e-bars > span,
+div:hover > .brand-e-bars > span,
+.brand-e-bars:hover > span {
+  animation: e-bar-pulse 0.5s ease forwards;
+}
+
+.brand-e-bars > span:nth-child(2) {
+  animation-delay: 0.05s;
+}
+
+.brand-e-bars > span:nth-child(3) {
+  animation-delay: 0.1s;
+}
+
+@keyframes e-bar-pulse {
+  0% { transform: scaleX(1); }
+  40% { transform: scaleX(1.15); }
+  100% { transform: scaleX(1); }
+}
+
+
+/* --- Footer variant: white bars on dark background --- */
+footer .brand-e-bars > span {
+  background: linear-gradient(90deg, #38BDF8, #818CF8, #A78BFA);
+}
+
+
+/* --- Larger variant for bigger text (hero/splash) --- */
+.brand-e-bars-lg {
+  gap: 4px;
+  width: 18px;
+}
+
+.brand-e-bars-lg > span {
+  height: 4px;
+  border-radius: 2px;
+}
+
+
+/* --- Background grid pattern --- */
+.bg-grid-blue {
+  background-image:
+    linear-gradient(rgba(0, 102, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 102, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+
+/* --- Glow sphere decorations --- */
+.glow-sphere {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+
+/* --- Active metric card highlight --- */
+.active-metric {
+  border-color: #0066FF !important;
+  box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.15), 0 8px 24px rgba(0, 102, 255, 0.12) !important;
+}
+
+
+/* --- Modal overlay helpers --- */
+.modal-overlay {
+  transition: opacity 0.2s ease;
+}
+
+.modal-overlay:not(.hidden) {
+  display: flex !important;
+}
