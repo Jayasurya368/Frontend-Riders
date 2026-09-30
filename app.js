@@ -24,9 +24,13 @@ function safeCreateIcons() {
 }
 
 // 0. SUPABASE AUTH INTEGRATION & LOCAL FALLBACK
-const SUPABASE_URL = 'https://fcmumvpohtwltjbweqpq.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_rN6lawqyRal7rDbnEsPAXQ_GrH3YkrW';
+// Values come from Vercel Environment Variables. build.js writes them into
+// config.js (window.__ENV__) at deploy time, so they are not hard-coded here.
+const ENV = window.__ENV__ || {};
+const SUPABASE_URL = ENV.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = ENV.SUPABASE_ANON_KEY || '';
 let supabase = null;
+let recoveryPending = false; // true while the user is in the "set new password" step
 let currentAuthMode = 'signin';
 let currentUser = null;
 
@@ -34,14 +38,19 @@ let currentUser = null;
 function initSupabase() {
   try { localStorage.removeItem('rider_user'); } catch (e) {}
 
-  if (window.supabase && typeof window.supabase.createClient === 'function') {
+  // Password-reset emails land back here with #...&type=recovery in the URL
+  if (/type=recovery/.test(window.location.hash)) recoveryPending = true;
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.error('Supabase config missing. Set SUPABASE_URL and SUPABASE_ANON_KEY in Vercel → Settings → Environment Variables, then redeploy.');
+  } else if (window.supabase && typeof window.supabase.createClient === 'function') {
     try {
       supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       loadLeaderboard();
       
       // Fetch initial session
       supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session && session.user) {
+        if (session && session.user && !recoveryPending) {
           currentUser = session.user;
           try { localStorage.setItem('rider_user', JSON.stringify(currentUser)); } catch (e) {}
           updateAuthUI();
@@ -52,7 +61,12 @@ function initSupabase() {
 
       // Listen for auth state changes
       supabase.auth.onAuthStateChange((event, session) => {
-        if (session && session.user) {
+        if (event === 'PASSWORD_RECOVERY') {
+          // User clicked the reset link in their email → show "set new password"
+          recoveryPending = true;
+          setTimeout(() => openAuthModal('reset'), 0);
+        }
+        if (session && session.user && !recoveryPending) {
           currentUser = session.user;
           try { localStorage.setItem('rider_user', JSON.stringify(currentUser)); } catch (e) {}
         } else if (event === 'SIGNED_OUT') {
@@ -74,6 +88,108 @@ if (document.readyState === 'loading') {
   initSupabase();
 }
 
+// ---- Forgot / reset password ----
+function showAuthAlert(type, text) {
+  const box = document.getElementById('authAlertBox');
+  if (!box) return;
+  const styles = {
+    success: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+    error: 'bg-rose-50 text-rose-700 border border-rose-200',
+    info: 'bg-amber-50 text-amber-700 border border-amber-200'
+  };
+  box.className = 'mb-4 p-3 rounded-lg text-xs font-mono font-medium text-center ' + (styles[type] || styles.info);
+  box.innerText = text;
+}
+
+function syncForgotLink() {
+  const link = document.getElementById('forgotPasswordWrap');
+  if (link) link.classList.toggle('hidden', currentAuthMode !== 'signin');
+}
+
+// view: 'main' (sign in / sign up) | 'forgot' | 'reset'
+function showAuthView(view) {
+  ['main', 'forgot', 'reset'].forEach(v => {
+    const el = document.getElementById('auth' + v.charAt(0).toUpperCase() + v.slice(1) + 'View');
+    if (el) el.classList.toggle('hidden', v !== view);
+  });
+  const box = document.getElementById('authAlertBox');
+  if (box) { box.classList.add('hidden'); box.innerText = ''; }
+  const sub = document.getElementById('authSubtitle');
+  if (sub) {
+    sub.innerText = view === 'forgot' ? 'RESET YOUR PASSWORD'
+      : view === 'reset' ? 'SET A NEW PASSWORD'
+      : 'RIDERS AUTHENTICATION';
+  }
+  if (view === 'forgot') {
+    const typed = document.getElementById('authEmail');
+    const target = document.getElementById('forgotEmail');
+    if (typed && target && typed.value && !target.value) target.value = typed.value;
+  }
+  safeCreateIcons();
+}
+
+async function handleForgotSubmit(e) {
+  e.preventDefault();
+  const email = (document.getElementById('forgotEmail')?.value || '').trim();
+  const btn = document.getElementById('btnSendReset');
+  if (!email) return;
+  if (!supabase) { showAuthAlert('error', 'Cannot reach Supabase. Check your internet connection and reload.'); return; }
+
+  const original = btn ? btn.innerText : 'Send Reset Link';
+  if (btn) { btn.disabled = true; btn.innerText = 'Sending...'; }
+  try {
+    // This URL must be listed under Supabase → Authentication → URL Configuration → Redirect URLs
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname
+    });
+    if (error) throw error;
+    showAuthAlert('success', '✓ If an account exists for that email, a reset link is on its way. Check your inbox (and spam).');
+    playSound('success');
+  } catch (err) {
+    showAuthAlert('error', err.message || 'Could not send reset email. Please try again.');
+    playSound('warning');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerText = original; }
+  }
+}
+
+async function handleResetSubmit(e) {
+  e.preventDefault();
+  const pw = document.getElementById('resetPassword')?.value || '';
+  const confirmPw = document.getElementById('resetPasswordConfirm')?.value || '';
+  const btn = document.getElementById('btnSubmitReset');
+
+  if (pw.length < 8) { showAuthAlert('error', 'Password must be at least 8 characters.'); playSound('warning'); return; }
+  if (pw !== confirmPw) { showAuthAlert('error', 'Passwords do not match.'); playSound('warning'); return; }
+  if (!supabase) { showAuthAlert('error', 'Cannot reach Supabase. Check your internet connection and reload.'); return; }
+
+  const original = btn ? btn.innerText : 'Update Password';
+  if (btn) { btn.disabled = true; btn.innerText = 'Updating...'; }
+  try {
+    const { data, error } = await supabase.auth.updateUser({ password: pw });
+    if (error) throw error;
+
+    recoveryPending = false;
+    currentUser = data.user || currentUser;
+    try { localStorage.setItem('rider_user', JSON.stringify(currentUser)); } catch (e2) {}
+    updateAuthUI();
+    showAuthAlert('success', '✓ Password updated! You are now signed in.');
+    playSound('success');
+    try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e3) {}
+
+    setTimeout(() => {
+      closeModal('authModal');
+      const f = document.getElementById('resetForm');
+      if (f) f.reset();
+    }, 1200);
+  } catch (err) {
+    showAuthAlert('error', err.message || 'Could not update password. The link may have expired — request a new one.');
+    playSound('warning');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerText = original; }
+  }
+}
+
 function toggleAuthMode() {
   currentAuthMode = currentAuthMode === 'signin' ? 'signup' : 'signin';
   const toggleBtn = document.getElementById('toggleAuthModeBtn');
@@ -91,6 +207,7 @@ function toggleAuthMode() {
     if (toggleBtn) toggleBtn.innerText = 'Already have an account? Sign In';
     if (submitBtn) submitBtn.innerText = 'Create Developer Account';
   }
+  syncForgotLink();
 }
 
 async function handleAuthSubmit(e) {
@@ -506,7 +623,7 @@ function startHackathonCountdowns() {
 
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60)) / (1000 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((diff % (1000 * 60)) / 1000);
 
     const timer1 = document.getElementById('timer1');
@@ -703,6 +820,14 @@ function openModal(modalId) {
 
 function closeModal(modalId) {
   playSound('click');
+  if (modalId === 'authModal' && recoveryPending) {
+    // User bailed out of "set new password" — don't leave the temporary recovery session logged in
+    recoveryPending = false;
+    currentUser = null;
+    try { localStorage.removeItem('rider_user'); } catch (e) {}
+    if (supabase) supabase.auth.signOut().catch(() => {});
+    updateAuthUI();
+  }
   const modal = document.getElementById(modalId);
   if (modal) {
     modal.classList.add('hidden');
@@ -721,7 +846,13 @@ function openHostModal() {
 }
 
 function openAuthModal(mode = 'signin') {
+  if (mode === 'reset') {
+    showAuthView('reset');
+    openModal('authModal');
+    return;
+  }
   currentAuthMode = mode;
+  showAuthView('main');
   const toggleBtn = document.getElementById('toggleAuthModeBtn');
   const submitBtn = document.getElementById('btnSubmitAuth');
   const alertBox = document.getElementById('authAlertBox');
@@ -738,6 +869,7 @@ function openAuthModal(mode = 'signin') {
       submitBtn.innerText = 'Create Developer Account';
     }
   }
+  syncForgotLink();
   openModal('authModal');
 }
 
@@ -1025,6 +1157,23 @@ function handleCtaSubmit(e) {
     toast.classList.remove('hidden');
   }
 }
+
+function fakeGithubAuth() {
+  playSound('success');
+  alert('⚡ Authenticated as Rider via GitHub OAuth mockup!');
+  closeModal('authModal');
+}
+
+// 9. MOBILE MENU TOGGLE
+document.addEventListener('DOMContentLoaded', () => {
+  const menuBtn = document.getElementById('mobileMenuBtn');
+  const mobileMenu = document.getElementById('mobileMenu');
+  if (menuBtn && mobileMenu) {
+    menuBtn.addEventListener('click', () => {
+      mobileMenu.classList.toggle('hidden');
+    });
+  }
+});
 
 // ============================================================
 // 10. FRAI v1.0 — FRONTEND RIDERS AI EVALUATION ENGINE
@@ -2173,6 +2322,9 @@ window.safeCreateIcons = safeCreateIcons;
 window.toggleAuthMode = toggleAuthMode;
 window.handleAuthSubmit = handleAuthSubmit;
 window.handleOAuth = handleOAuth;
+window.showAuthView = showAuthView;
+window.handleForgotSubmit = handleForgotSubmit;
+window.handleResetSubmit = handleResetSubmit;
 window.handleSignOut = handleSignOut;
 window.filterHacks = filterHacks;
 window.searchLeaderboard = searchLeaderboard;
@@ -2189,6 +2341,7 @@ window.openRiderModal = openRiderModal;
 window.handleProjectSubmit = handleProjectSubmit;
 window.handleHostSubmit = handleHostSubmit;
 window.handleCtaSubmit = handleCtaSubmit;
+window.fakeGithubAuth = fakeGithubAuth;
 window.loadSnippetPreset = loadSnippetPreset;
 window.updateCharCount = updateCharCount;
 window.runFRAIEvaluation = runFRAIEvaluation;
