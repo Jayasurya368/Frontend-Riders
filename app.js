@@ -483,7 +483,7 @@ function playSound(type) {
 }
 
 // Sound Toggle & Interactive Controls Initialization
-document.addEventListener('DOMContentLoaded', () => {
+function initApp() {
   const soundBtn = document.getElementById('soundToggleBtn');
   const soundIcon = document.getElementById('soundIcon');
   if (soundBtn) {
@@ -548,12 +548,26 @@ document.addEventListener('DOMContentLoaded', () => {
         mobileMenu.classList.add('hidden');
       });
     });
+    // Close mobile menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!mobileMenu.contains(e.target) && !menuBtn.contains(e.target)) {
+        mobileMenu.classList.add('hidden');
+      }
+    });
   }
 
   initParticleCanvas();
   startHackathonCountdowns();
   safeCreateIcons();
-});
+}
+
+// Run initApp: if the DOM is still loading wait for DOMContentLoaded,
+// otherwise run immediately (script is at the bottom of <body>).
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
 
 // 2. CANVAS PARTICLE BACKGROUND ("RIDE THE DOM" NEON GRID)
 function initParticleCanvas() {
