@@ -40,6 +40,32 @@ function initSupabase() {
     try {
       supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       loadLeaderboard();
+
+      // ── Real-time leaderboard refresh ─────────────────────────────────
+      // Subscribe to UPDATE events on the submissions table.
+      // The edge function writes `score`, `performance`, etc. back to the
+      // row via UPDATE — this fires and re-fetches the leaderboard so every
+      // open browser tab sees the result without a page reload.
+      supabase
+        .channel('leaderboard-realtime')
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'submissions' },
+          (payload) => {
+            // Only re-render if the update actually populated a score
+            if (payload.new && payload.new.score !== null && payload.new.score !== undefined) {
+              loadLeaderboard(lbPeriod);
+              // Flash the leaderboard section to signal a live update
+              const lbSection = document.getElementById('leaderboard');
+              if (lbSection) {
+                lbSection.classList.add('leaderboard-flash');
+                setTimeout(() => lbSection.classList.remove('leaderboard-flash'), 1200);
+              }
+            }
+          }
+        )
+        .subscribe();
+
       
       // Fetch initial session
       supabase.auth.getSession().then(({ data: { session } }) => {
@@ -1181,16 +1207,7 @@ function fakeGithubAuth() {
   closeModal('authModal');
 }
 
-// 9. MOBILE MENU TOGGLE
-document.addEventListener('DOMContentLoaded', () => {
-  const menuBtn = document.getElementById('mobileMenuBtn');
-  const mobileMenu = document.getElementById('mobileMenu');
-  if (menuBtn && mobileMenu) {
-    menuBtn.addEventListener('click', () => {
-      mobileMenu.classList.toggle('hidden');
-    });
-  }
-});
+// NOTE: Mobile menu toggle is handled inside initApp() above (with e.stopPropagation and outside-click close).
 
 // ============================================================
 // 10. FRAI v1.0 — FRONTEND RIDERS AI EVALUATION ENGINE

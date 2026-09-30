@@ -117,3 +117,40 @@ footer .brand-e-bars > span {
 .modal-overlay:not(.hidden) {
   display: flex !important;
 }
+
+
+/* ── Real-time leaderboard flash animation ──────────────────────────────────
+   Briefly highlights the leaderboard section when a new score arrives via
+   the Supabase Realtime channel (submissions UPDATE event).                 */
+
+@keyframes lb-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(0, 102, 255, 0); }
+  30%  { box-shadow: 0 0 0 6px rgba(0, 102, 255, 0.25); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 102, 255, 0); }
+}
+
+.leaderboard-flash {
+  animation: lb-flash 1.2s ease-out forwards;
+  border-radius: 0.5rem;
+}
+
+
+/* ── Score badge colour helpers ─────────────────────────────────────────────
+   Used by the leaderboard rows for inline score badges.                     */
+
+.score-great  { color: #059669; }   /* emerald-600  ≥ 90 */
+.score-ok     { color: #d97706; }   /* amber-600   ≥ 50  */
+.score-poor   { color: #dc2626; }   /* rose-600    < 50  */
+
+
+/* ── Evaluation status pill on submit modal ─────────────────────────────────
+   Pulse animation for the "Lighthouse is auditing..." status text.          */
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+.status-pulsing {
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
