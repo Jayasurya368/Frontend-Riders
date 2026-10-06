@@ -7,5 +7,10 @@
     "build": "node build.js",
     "preview": "node build.js && npx serve dist -l 5500"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
 }
