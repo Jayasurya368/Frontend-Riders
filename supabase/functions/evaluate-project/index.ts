@@ -1,101 +1,127 @@
 /**
- * evaluate-project  — Supabase Edge Function
+ * evaluate-project — Supabase Edge Function
  *
- * Triggered by the frontend after it inserts a row into `submissions`.
- * 1. Reads the submission's demo_url from the database.
- * 2. Calls Google PageSpeed Insights v5 for Performance, Accessibility,
- *    Best-Practices, and SEO scores.
- * 3. Computes a weighted average score out of 100.
- * 4. Writes the scores back to the submissions row.
+ * Triggered by the frontend after a submission row is inserted.
+ * Pipeline:
+ *   1. Fetch submission row (demo_url, user_id, attempt_number).
+ *   2. Check the site is reachable (HTTP HEAD).
+ *   3. Call Google PageSpeed Insights v5 (mobile strategy).
+ *   4. Map Lighthouse scores → new 100-pt rubric:
+ *        Problem Requirements    40 pts  (requires the organizer to set criteria;
+ *                                         approximated from overall PSI score until
+ *                                         AI evaluation is integrated)
+ *        Functionality           20 pts  (best-practices + accessibility proxy)
+ *        Responsive Design       15 pts  (mobile LCP / layout stability proxy)
+ *        Performance             10 pts  (Lighthouse performance score)
+ *        Accessibility           10 pts  (Lighthouse accessibility score)
+ *        UI/UX & Visual Quality   5 pts  (SEO + best-practices quality proxy)
  *
- * Weights:
- *   Performance  35 %
- *   Accessibility 30 %
- *   Best Practices 20 %
- *   SEO            15 %
+ *        Total = 100 pts
  *
- * Required Supabase Secrets (set via `supabase secrets set`):
- *   PAGESPEED_API_KEY  — Google Cloud API key with PageSpeed Insights enabled.
- *                        Leave empty to hit the free un-keyed endpoint (strict rate-limit).
- *   SUPABASE_URL       — injected automatically by the Supabase runtime.
- *   SUPABASE_SERVICE_ROLE_KEY — injected automatically; needed to bypass RLS for the write-back.
+ *   5. Write scores back to `submissions` row.
+ *   6. Call update_best_submission() so is_best is always correct.
+ *
+ * Supabase Secrets required:
+ *   PAGESPEED_API_KEY          — Google Cloud API key (optional; free tier without key)
+ *   SUPABASE_URL               — auto-injected
+ *   SUPABASE_SERVICE_ROLE_KEY  — auto-injected
  */
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// ── Weights (must sum to 1.0) ────────────────────────────────────────────────
-const WEIGHTS = {
-  performance:    0.35,
-  accessibility:  0.30,
-  best_practices: 0.20,
-  seo:            0.15,
-} as const;
-
-// ── CORS headers (allow the Vercel / Netlify frontend to call this) ──────────
+// ── CORS headers ─────────────────────────────────────────────────────────────
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info",
 };
 
-// ── Helper: round to nearest integer ────────────────────────────────────────
-const round = (n: number) => Math.round(n);
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, "Content-Type": "application/json" },
+  });
 
-// ── PageSpeed category key → our DB column ───────────────────────────────────
-const CATEGORY_MAP: Record<string, keyof typeof WEIGHTS> = {
-  performance:    "performance",
-  accessibility:  "accessibility",
-  "best-practices": "best_practices",
-  seo:            "seo",
-};
+const round = (n: number) => Math.round(n * 100) / 100;
+
+// ── Scoring rubric weights (must sum to 1.0) ─────────────────────────────────
+// Maps from Lighthouse/PSI raw score (0-1) to rubric category
+const MAX_POINTS = {
+  problem:     40,
+  functional:  20,
+  responsive:  15,
+  performance: 10,
+  a11y:        10,
+  uiux:         5,
+} as const;
 
 serve(async (req) => {
-  // Handle CORS pre-flight
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   try {
-    // ── 1. Parse request body ──────────────────────────────────────────────
     const { submission_id } = await req.json() as { submission_id: string };
     if (!submission_id) {
-      return new Response(
-        JSON.stringify({ error: "submission_id is required" }),
-        { status: 400, headers: { ...CORS, "Content-Type": "application/json" } },
-      );
+      return json({ error: "submission_id is required" }, 400);
     }
 
-    // ── 2. Build Supabase admin client ────────────────────────────────────
+    // ── Build Supabase admin client ──────────────────────────────────────────
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       { auth: { persistSession: false } },
     );
 
-    // ── 3. Fetch the submission row ───────────────────────────────────────
+    // ── Fetch submission row ─────────────────────────────────────────────────
     const { data: submission, error: fetchErr } = await supabaseAdmin
       .from("submissions")
-      .select("id, demo_url")
+      .select("id, demo_url, user_id, attempt_number, hackathon_id")
       .eq("id", submission_id)
       .single();
 
     if (fetchErr || !submission) {
-      return new Response(
-        JSON.stringify({ error: fetchErr?.message ?? "Submission not found" }),
-        { status: 404, headers: { ...CORS, "Content-Type": "application/json" } },
-      );
+      return json({ error: fetchErr?.message ?? "Submission not found" }, 404);
     }
 
-    const { demo_url } = submission;
+    const { demo_url, user_id, hackathon_id } = submission;
+
     if (!demo_url) {
-      return new Response(
-        JSON.stringify({ error: "Submission has no demo_url" }),
-        { status: 422, headers: { ...CORS, "Content-Type": "application/json" } },
-      );
+      await supabaseAdmin.from("submissions").update({
+        eval_status: "FAILED",
+        eval_error:  "Submission has no demo_url",
+      }).eq("id", submission_id);
+      return json({ error: "Submission has no demo_url" }, 422);
     }
 
-    // ── 4. Call Google PageSpeed Insights v5 ─────────────────────────────
+    // ── Mark as EVALUATING ───────────────────────────────────────────────────
+    await supabaseAdmin.from("submissions").update({
+      eval_status: "EVALUATING",
+    }).eq("id", submission_id);
+
+    // ── Reachability check ───────────────────────────────────────────────────
+    let isReachable = false;
+    try {
+      const probe = await fetch(demo_url, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(10_000),
+      });
+      isReachable = probe.ok || probe.status < 500;
+    } catch (reachErr) {
+      console.warn("[evaluate-project] Reachability check failed:", reachErr);
+    }
+
+    if (!isReachable) {
+      await supabaseAdmin.from("submissions").update({
+        eval_status: "FAILED",
+        eval_error:  `Site at ${demo_url} is not reachable or returned a server error. Evaluation skipped.`,
+      }).eq("id", submission_id);
+      return json({
+        error: `Site not reachable: ${demo_url}`,
+        note:  "Submission attempt is preserved. Contact the organizer if you believe this is an error.",
+      }, 200);
+    }
+
+    // ── Call Google PageSpeed Insights v5 (mobile) ───────────────────────────
     const apiKey = Deno.env.get("PAGESPEED_API_KEY") ?? "";
     const categories = ["performance", "accessibility", "best-practices", "seo"];
     const catParams = categories.map(c => `category=${c}`).join("&");
@@ -103,82 +129,141 @@ serve(async (req) => {
     const psiUrl =
       `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(demo_url)}&strategy=mobile&${catParams}${keyParam}`;
 
-    const psiRes = await fetch(psiUrl);
+    const psiRes = await fetch(psiUrl, { signal: AbortSignal.timeout(60_000) });
     if (!psiRes.ok) {
       const body = await psiRes.text();
-      return new Response(
-        JSON.stringify({ error: `PageSpeed API error ${psiRes.status}: ${body}` }),
-        { status: 502, headers: { ...CORS, "Content-Type": "application/json" } },
-      );
+      await supabaseAdmin.from("submissions").update({
+        eval_status: "FAILED",
+        eval_error:  `PageSpeed API error ${psiRes.status}: ${body.slice(0, 500)}`,
+      }).eq("id", submission_id);
+      return json({
+        error: `PageSpeed API error ${psiRes.status}`,
+        note:  "Evaluation failed due to PSI API error. Submission preserved.",
+      }, 200);
     }
 
     const psiData = await psiRes.json();
     const cats = psiData?.lighthouseResult?.categories;
 
     if (!cats) {
-      return new Response(
-        JSON.stringify({ error: "No Lighthouse categories in PageSpeed response", raw: psiData }),
-        { status: 502, headers: { ...CORS, "Content-Type": "application/json" } },
-      );
+      await supabaseAdmin.from("submissions").update({
+        eval_status: "FAILED",
+        eval_error:  "No Lighthouse categories in PageSpeed response.",
+      }).eq("id", submission_id);
+      return json({ error: "No Lighthouse data returned." }, 200);
     }
 
-    // ── 5. Extract raw scores (0-1) and convert to 0-100 ─────────────────
-    const raw: Record<string, number> = {};
+    // ── Extract raw PSI scores (0–1) → 0–100 ────────────────────────────────
+    const psiPerf    = round((cats["performance"]?.score    ?? 0) * 100);
+    const psiA11y    = round((cats["accessibility"]?.score  ?? 0) * 100);
+    const psiBP      = round((cats["best-practices"]?.score ?? 0) * 100);
+    const psiSeo     = round((cats["seo"]?.score            ?? 0) * 100);
 
-    for (const [psiKey, dbKey] of Object.entries(CATEGORY_MAP)) {
-      const score = cats[psiKey]?.score;
-      raw[dbKey] = score !== null && score !== undefined
-        ? round(score * 100)
-        : 0;
-    }
-
-    // ── 6. Compute weighted average ───────────────────────────────────────
-    const weightedScore = round(
-      raw.performance    * WEIGHTS.performance  +
-      raw.accessibility  * WEIGHTS.accessibility +
-      raw.best_practices * WEIGHTS.best_practices +
-      raw.seo            * WEIGHTS.seo,
+    // Weighted composite for backward-compat `score` field (legacy PSI weight)
+    const legacyWeightedScore = round(
+      psiPerf * 0.35 +
+      psiA11y * 0.30 +
+      psiBP   * 0.20 +
+      psiSeo  * 0.15,
     );
 
-    // ── 7. Write scores back to the submissions row ───────────────────────
+    // ── Map to new 100-pt rubric ─────────────────────────────────────────────
+    //
+    // Problem Requirements (40 pts):
+    //   True requirement checking needs the organizer's problem statement.
+    //   Approximation: use overall PSI composite as a quality proxy scaled to 40 pts.
+    //   When a dedicated AI evaluation layer is added, this can be replaced.
+    const problemProxy = legacyWeightedScore / 100;   // 0..1
+    const scoreP  = round(problemProxy * MAX_POINTS.problem);
+
+    // Functionality & Interaction (20 pts):
+    //   Best Practices + Accessibility average → proxy for working functionality
+    const funcProxy = ((psiBP + psiA11y) / 2) / 100;
+    const scoreF  = round(funcProxy * MAX_POINTS.functional);
+
+    // Responsive Design (15 pts):
+    //   PSI mobile performance encapsulates LCP, CLS, layout shift → good responsive proxy
+    const respProxy = psiPerf / 100;
+    const scoreR  = round(respProxy * MAX_POINTS.responsive);
+
+    // Performance (10 pts):
+    //   Directly from Lighthouse performance (mobile)
+    const scorePerf = round((psiPerf / 100) * MAX_POINTS.performance);
+
+    // Accessibility (10 pts):
+    //   Directly from Lighthouse accessibility
+    const scoreA  = round((psiA11y / 100) * MAX_POINTS.a11y);
+
+    // UI/UX & Visual Quality (5 pts):
+    //   SEO score correlates with clean markup, structured content, readability
+    const scoreU  = round((psiSeo / 100) * MAX_POINTS.uiux);
+
+    // Total
+    const totalScore = Math.min(100, Math.round(
+      scoreP + scoreF + scoreR + scorePerf + scoreA + scoreU
+    ));
+
+    // ── Write scores back ────────────────────────────────────────────────────
     const { error: updateErr } = await supabaseAdmin
       .from("submissions")
       .update({
-        score:          weightedScore,
-        performance:    raw.performance,
-        accessibility:  raw.accessibility,
-        best_practices: raw.best_practices,
-        seo:            raw.seo,
-        evaluated_at:   new Date().toISOString(),
+        // New rubric columns
+        score_problem:     scoreP,
+        score_functional:  scoreF,
+        score_responsive:  scoreR,
+        score_performance: scorePerf,
+        score_a11y:        scoreA,
+        score_uiux:        scoreU,
+        // Primary score (used by leaderboard)
+        score:             totalScore,
+        // Legacy Lighthouse columns (kept for backward compatibility)
+        performance:       psiPerf,
+        accessibility:     psiA11y,
+        best_practices:    psiBP,
+        seo:               psiSeo,
+        // Status
+        eval_status:       "EVALUATED",
+        eval_error:        null,
+        evaluated_at:      new Date().toISOString(),
       })
       .eq("id", submission_id);
 
     if (updateErr) {
-      return new Response(
-        JSON.stringify({ error: updateErr.message }),
-        { status: 500, headers: { ...CORS, "Content-Type": "application/json" } },
-      );
+      return json({ error: updateErr.message }, 500);
     }
 
-    // ── 8. Return the computed scores to the caller ───────────────────────
-    return new Response(
-      JSON.stringify({
-        submission_id,
-        score:          weightedScore,
-        performance:    raw.performance,
-        accessibility:  raw.accessibility,
-        best_practices: raw.best_practices,
-        seo:            raw.seo,
-        evaluated_at:   new Date().toISOString(),
-      }),
-      { status: 200, headers: { ...CORS, "Content-Type": "application/json" } },
-    );
+    // ── Update is_best flag (server-side) ────────────────────────────────────
+    if (user_id) {
+      const hid = hackathon_id ?? 1;
+      await supabaseAdmin.rpc("update_best_submission", {
+        p_user_id:      user_id,
+        p_hackathon_id: hid,
+      }).catch(e => console.warn("[evaluate-project] update_best_submission:", e));
+    }
+
+    // ── Return results ───────────────────────────────────────────────────────
+    return json({
+      submission_id,
+      score:             totalScore,
+      score_problem:     scoreP,
+      score_functional:  scoreF,
+      score_responsive:  scoreR,
+      score_performance: scorePerf,
+      score_a11y:        scoreA,
+      score_uiux:        scoreU,
+      // legacy
+      performance:       psiPerf,
+      accessibility:     psiA11y,
+      best_practices:    psiBP,
+      seo:               psiSeo,
+      eval_status:       "EVALUATED",
+      evaluated_at:      new Date().toISOString(),
+    });
 
   } catch (err) {
     console.error("[evaluate-project]", err);
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
-      { status: 500, headers: { ...CORS, "Content-Type": "application/json" } },
-    );
+    return json({
+      error: err instanceof Error ? err.message : String(err)
+    }, 500);
   }
 });

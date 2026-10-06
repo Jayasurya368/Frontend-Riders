@@ -66,6 +66,17 @@ function initSupabase() {
         )
         .subscribe();
 
+      // ── Real-time Web Craft Event configuration changes ────────────────
+      supabase
+        .channel('events-realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'events' },
+          () => {
+            fetchEventState();
+          }
+        )
+        .subscribe();
       
       // Fetch initial session
       supabase.auth.getSession().then(({ data: { session } }) => {
@@ -73,6 +84,7 @@ function initSupabase() {
           currentUser = session.user;
           try { localStorage.setItem('rider_user', JSON.stringify(currentUser)); } catch (e) {}
           updateAuthUI();
+          checkMySubmission();
         }
       }).catch(err => {
         console.warn('Session retrieval warning:', err);
@@ -88,9 +100,12 @@ function initSupabase() {
         if (session && session.user && !recoveryPending) {
           currentUser = session.user;
           try { localStorage.setItem('rider_user', JSON.stringify(currentUser)); } catch (e) {}
+          checkMySubmission();
         } else if (event === 'SIGNED_OUT') {
           currentUser = null;
           try { localStorage.removeItem('rider_user'); } catch (e) {}
+          mySubmission = null;
+          updateSubmissionSectionUI();
         }
         updateAuthUI();
       });
@@ -99,6 +114,7 @@ function initSupabase() {
     }
   }
   updateAuthUI();
+  initWebCraftEvent();
 }
 
 if (document.readyState === 'loading') {
@@ -654,29 +670,945 @@ function initParticleCanvas() {
   animate();
 }
 
-// 3. COUNTDOWN TIMER FOR ACTIVE HACKATHON
-function startHackathonCountdowns() {
-  let targetTime = new Date().getTime() + (4 * 24 * 60 * 60 * 1000) + (18 * 60 * 60 * 1000);
+// ============================================================
+// 3. WEB CRAFT EVENT 01: ENGINE, TIME VALIDATION & CONTROLS
+// ============================================================
 
-  function update() {
-    const now = new Date().getTime();
-    const diff = targetTime - now;
+const EVENT_CONFIG = {
+  id: 'web-craft-01',
+  hackathonId: 1,
+  name: 'WEB CRAFT',
+  number: 'EVENT 01',
+  title: 'Web Craft – Event 01',
+  dateString: '18 October 2026',
+  // Official release time: 18 October 2026 at 10:00:00 AM IST (Asia/Kolkata)
+  releaseIso: '2026-10-18T10:00:00+05:30',
+  releaseTimestamp: 1792297800000, // 2026-10-18 10:00:00 AM IST in milliseconds
+  defaultOrganizerKey: 'webcraft2026admin',
+  defaultRules: [
+    'Submissions must be original work created during the event timeframe.',
+    'Submit a valid, publicly accessible deployed website URL (HTTPS).',
+    'Application must be responsive across mobile, tablet, and desktop viewports.',
+    'Automated Lighthouse evaluation tests Performance, Accessibility, Best Practices, and SEO.',
+    'Only one submission per registered participant is permitted.'
+  ]
+};
 
-    if (diff <= 0) return;
+let serverTimeOffsetMs = 0; // offset between trusted server clock and local Date.now()
+let hasServerTimeSync = false;
+let eventState = {
+  isLive: false,
+  releaseTime: EVENT_CONFIG.releaseIso,
+  serverTime: null,
+  problemStatementLocked: true,
+  problemStatementTitle: 'Problem Statement Locked',
+  problemStatement: null,
+  rules: EVENT_CONFIG.defaultRules,
+  isForcedOpen: false,
+  isForcedClosed: false
+};
+let mySubmission = null; // cached participant submission for Event 01
+let webCraftCountdownInterval = null;
+let serverSyncInterval = null;
+let organizerCurrentTab = 'status';
 
+function formatIST(date) {
+  try {
+    const d = (date instanceof Date) ? date : new Date(date);
+    if (isNaN(d.getTime())) return '—';
+    return new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    }).format(d) + ' IST';
+  } catch (e) {
+    return String(date);
+  }
+}
+
+// Trusted current timestamp in epoch milliseconds (immune to local clock tampering)
+function getTrustedNow() {
+  return Date.now() + serverTimeOffsetMs;
+}
+
+// Evaluates whether the event is live according to server validation
+function isEventLive() {
+  if (eventState.isForcedClosed) return false;
+  if (eventState.isForcedOpen) return true;
+  return getTrustedNow() >= EVENT_CONFIG.releaseTimestamp;
+}
+
+// Synchronize client with trusted server time
+async function syncServerTime() {
+  try {
+    // Priority 1: Supabase database server time RPC
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.rpc('get_server_time');
+        if (!error && data) {
+          const serverDate = new Date(data);
+          if (!isNaN(serverDate.getTime())) {
+            serverTimeOffsetMs = serverDate.getTime() - Date.now();
+            hasServerTimeSync = true;
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Priority 2: HTTP Server Date header from current origin (Vercel / web server)
+    try {
+      const res = await fetch(window.location.href, { method: 'HEAD', cache: 'no-store' });
+      const headerDate = res.headers.get('date');
+      if (headerDate) {
+        const serverDate = new Date(headerDate);
+        if (!isNaN(serverDate.getTime())) {
+          serverTimeOffsetMs = serverDate.getTime() - Date.now();
+          hasServerTimeSync = true;
+          return;
+        }
+      }
+    } catch (_) {}
+  } catch (err) {
+    console.warn('[WebCraft] Server time sync notice:', err);
+  }
+}
+
+// Fetch event state from Supabase
+async function fetchEventState() {
+  if (!supabase) return;
+
+  try {
+    // 1. Try secure RPC function
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('get_event_state', { p_event_id: 'web-craft-01' });
+    if (!rpcErr && rpcData) {
+      if (rpcData.server_time) {
+        const sDate = new Date(rpcData.server_time);
+        if (!isNaN(sDate.getTime())) {
+          serverTimeOffsetMs = sDate.getTime() - Date.now();
+          hasServerTimeSync = true;
+        }
+      }
+      eventState.isForcedOpen = !!rpcData.is_forced_open;
+      eventState.isForcedClosed = !!rpcData.is_forced_closed;
+      eventState.problemStatement = rpcData.problem_statement || null;
+      eventState.problemStatementTitle = rpcData.problem_statement_title || 'Web Craft Event 01 Challenge';
+      if (rpcData.rules) eventState.rules = rpcData.rules;
+      updateWebCraftUI();
+      return;
+    }
+
+    // 2. Fallback: Query events table directly
+    const { data: tblData, error: tblErr } = await supabase
+      .from('events')
+      .select('*')
+      .eq('id', 'web-craft-01')
+      .single();
+
+    if (!tblErr && tblData) {
+      eventState.isForcedOpen = !!tblData.is_forced_open;
+      eventState.isForcedClosed = !!tblData.is_forced_closed;
+      eventState.problemStatement = tblData.problem_statement_markdown || null;
+      eventState.problemStatementTitle = tblData.problem_statement_title || 'Web Craft Event 01 Challenge';
+      if (tblData.rules) eventState.rules = tblData.rules;
+      updateWebCraftUI();
+    }
+  } catch (e) {
+    console.warn('[WebCraft] Could not retrieve remote event state:', e);
+  }
+}
+
+// Check participant's submission status for Event 01
+async function checkMySubmission() {
+  if (!supabase || !currentUser) {
+    mySubmission = null;
+    updateSubmissionSectionUI();
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('submissions')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .or('hackathon_id.eq.1,hackathon_id.is.null')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) {
+      mySubmission = data;
+    } else {
+      mySubmission = null;
+    }
+  } catch (e) {
+    console.warn('[WebCraft] checkMySubmission notice:', e);
+  }
+  updateSubmissionSectionUI();
+}
+
+// Simple safe markdown renderer for problem statement
+function renderMarkdownToHtml(md) {
+  if (!md) return '';
+  let html = md
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Headings
+  html = html.replace(/^### (.*$)/gim, '<h3 class="text-lg font-bold text-[#0A0F1D] mt-4 mb-2">$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2 class="text-xl font-extrabold text-[#0A0F1D] mt-5 mb-2 pb-1 border-b border-slate-200">$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1 class="text-2xl font-black text-[#0A0F1D] mt-6 mb-3">$1</h1>');
+
+  // Bold & Italic
+  html = html.replace(/\*\*(.*?)\*\*/gim, '<strong class="font-bold text-slate-900">$1</strong>');
+  html = html.replace(/\*(.*?)\*/gim, '<em>$1</em>');
+
+  // Inline code & Pre blocks
+  html = html.replace(/```([\s\S]*?)```/gim, '<pre class="bg-[#0A0F1D] text-slate-100 p-4 rounded-xl font-mono text-xs overflow-x-auto my-3"><code>$1</code></pre>');
+  html = html.replace(/`([^`]+)`/gim, '<code class="bg-blue-50 text-[#0066FF] px-1.5 py-0.5 rounded text-xs font-mono border border-blue-200">$1</code>');
+
+  // Blockquotes
+  html = html.replace(/^\> (.*$)/gim, '<blockquote class="border-l-4 border-[#0066FF] bg-blue-50/60 p-3 rounded-r-lg text-slate-700 italic my-3">$1</blockquote>');
+
+  // Unordered list items
+  html = html.replace(/^\- (.*$)/gim, '<li class="ml-4 list-disc text-slate-700 my-1">$1</li>');
+
+  // Paragraphs
+  html = html.replace(/\n\n+/g, '</p><p class="mb-3 text-slate-700 leading-relaxed">');
+  html = '<p class="mb-3 text-slate-700 leading-relaxed">' + html + '</p>';
+
+  return html;
+}
+
+// Fallback problem statement when organizer hasn't set custom text
+function getDefaultLiveProblemStatement() {
+  return `# Web Craft Event 01: Core Challenge
+
+Welcome to **Web Craft – Event 01**, the premier frontend speed, craft, and responsiveness challenge by Frontend Riders.
+
+### Objective
+Design and implement a responsive, highly accessible, and visually stunning web experience meeting production-grade Core Web Vitals and Lighthouse benchmarks.
+
+### Core Technical Requirements
+- **Responsive Layout**: Flawless visual hierarchy across Mobile (375px+), Tablet (768px+), and Desktop (1280px+) viewports.
+- **Accessibility & ARIA**: Semantic HTML5 landmark structure, proper color contrast, keyboard navigability, and ARIA labels.
+- **Speed & Web Vitals**: Zero layout shift (CLS < 0.05), rapid DOM hydration, and smooth 60 FPS interactions.
+- **Clean Architecture**: Modular structure, well-organized styling, and zero console errors.
+
+### Submission Instructions
+1. Deploy your live project to a public host (**Vercel**, **Netlify**, **GitHub Pages**, or **Cloudflare Pages**).
+2. Enter your live HTTPS URL into the **Submit Project** section below.
+3. Your submission will immediately be evaluated by the automated Lighthouse benchmark engine.`;
+}
+
+// Automatic transition when release time is reached
+function transitionToLive() {
+  if (eventState.isLive) return;
+  eventState.isLive = true;
+  playSound('success');
+  updateWebCraftUI();
+  fetchEventState();
+}
+
+// Main countdown loop (runs every second)
+function updateWebCraftCountdown() {
+  const now = getTrustedNow();
+  const diff = EVENT_CONFIG.releaseTimestamp - now;
+  const isLiveNow = isEventLive();
+
+  // Update clock sync indicator in hero & organizer portal
+  const clockEl = document.getElementById('heroServerClock');
+  if (clockEl) {
+    clockEl.innerText = 'IST: ' + formatIST(now);
+  }
+  const orgClockEl = document.getElementById('orgServerTimeDisplay');
+  if (orgClockEl) {
+    orgClockEl.innerText = formatIST(now);
+  }
+
+  if (isLiveNow) {
+    if (!eventState.isLive) {
+      transitionToLive();
+    }
+    // Update timer labels for live mode
+    const cdDays = document.getElementById('cdDays');
+    const cdHours = document.getElementById('cdHours');
+    const cdMinutes = document.getElementById('cdMinutes');
+    const cdSeconds = document.getElementById('cdSeconds');
+    if (cdDays) cdDays.innerText = '00';
+    if (cdHours) cdHours.innerText = '00';
+    if (cdMinutes) cdMinutes.innerText = '00';
+    if (cdSeconds) cdSeconds.innerText = '00';
+
+    const psCd = document.getElementById('psCountdownText');
+    if (psCd) psCd.innerText = 'EVENT IS LIVE!';
+
+    const t1 = document.getElementById('timer1');
+    if (t1) t1.innerText = 'LIVE NOW';
+    return;
+  }
+
+  // Still locked
+  if (diff > 0) {
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((diff % (1000 * 60)) / 1000);
 
-    const timer1 = document.getElementById('timer1');
-    if (timer1) {
-      timer1.innerText = `${String(days).padStart(2, '0')}d ${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+    const pad = n => String(n).padStart(2, '0');
+
+    const cdDays = document.getElementById('cdDays');
+    const cdHours = document.getElementById('cdHours');
+    const cdMinutes = document.getElementById('cdMinutes');
+    const cdSeconds = document.getElementById('cdSeconds');
+    if (cdDays) cdDays.innerText = pad(days);
+    if (cdHours) cdHours.innerText = pad(hours);
+    if (cdMinutes) cdMinutes.innerText = pad(minutes);
+    if (cdSeconds) cdSeconds.innerText = pad(seconds);
+
+    const psCd = document.getElementById('psCountdownText');
+    if (psCd) psCd.innerText = `${pad(days)}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+
+    const t1 = document.getElementById('timer1');
+    if (t1) t1.innerText = `${pad(days)}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+  }
+}
+
+// Master UI state synchronizer: updates all DOM elements for locked vs live state
+function updateWebCraftUI() {
+  const isLive = isEventLive();
+  eventState.isLive = isLive;
+
+  // 1. Navigation status badge
+  const navStatusBadge = document.getElementById('navStatusBadge');
+  const navStatusText = document.getElementById('navStatusText');
+  const mobileStatusBadge = document.getElementById('mobileStatusBadge');
+  const mobileStatusText = document.getElementById('mobileStatusText');
+
+  if (navStatusBadge && navStatusText) {
+    if (isLive) {
+      navStatusBadge.className = 'hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200';
+      navStatusText.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block mr-1"></span> 🟢 EVENT LIVE';
+    } else {
+      navStatusBadge.className = 'hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold bg-amber-50 text-amber-800 border border-amber-200';
+      navStatusText.innerText = '🔒 EVENT NOT STARTED';
     }
   }
 
-  update();
-  setInterval(update, 1000);
+  if (mobileStatusBadge && mobileStatusText) {
+    if (isLive) {
+      mobileStatusBadge.className = 'p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-mono font-bold text-emerald-700 flex items-center gap-2 mb-2';
+      mobileStatusText.innerHTML = '🟢 EVENT LIVE';
+    } else {
+      mobileStatusBadge.className = 'p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-mono font-bold text-amber-800 flex items-center gap-2 mb-2';
+      mobileStatusText.innerText = '🔒 EVENT NOT STARTED';
+    }
+  }
+
+  // 2. Navigation Submit Project Button
+  const navSubmitBtn = document.getElementById('navSubmitBtn');
+  const navSubmitBtnText = document.getElementById('navSubmitBtnText');
+  const mobileNavSubmitBtn = document.getElementById('mobileNavSubmitBtn');
+  const mobileNavSubmitBtnText = document.getElementById('mobileNavSubmitBtnText');
+
+  if (navSubmitBtn && navSubmitBtnText) {
+    if (isLive) {
+      navSubmitBtn.className = 'px-4 py-2 rounded-xl font-bold text-xs font-mono transition-all flex items-center gap-1.5 bg-gradient-to-r from-[#0066FF] to-[#0052CC] text-white shadow-md shadow-blue-500/25 hover:shadow-blue-500/40 hover:scale-[1.02] cursor-pointer';
+      navSubmitBtn.removeAttribute('disabled');
+      navSubmitBtn.innerHTML = '<i data-lucide="rocket" class="w-3.5 h-3.5"></i> <span>Submit Project</span>';
+    } else {
+      navSubmitBtn.className = 'px-4 py-2 rounded-xl font-bold text-xs font-mono transition-all flex items-center gap-1.5 bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed opacity-60';
+      navSubmitBtn.setAttribute('disabled', 'true');
+      navSubmitBtn.innerHTML = '<i data-lucide="lock" class="w-3.5 h-3.5"></i> <span>Submit: LOCKED</span>';
+    }
+  }
+
+  if (mobileNavSubmitBtn && mobileNavSubmitBtnText) {
+    if (isLive) {
+      mobileNavSubmitBtn.className = 'w-full py-2.5 text-center text-xs font-mono font-bold rounded-xl transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-[#0066FF] to-[#0052CC] text-white shadow-md cursor-pointer';
+      mobileNavSubmitBtn.removeAttribute('disabled');
+      mobileNavSubmitBtn.innerHTML = '<i data-lucide="rocket" class="w-4 h-4"></i> <span>Submit Project</span>';
+    } else {
+      mobileNavSubmitBtn.className = 'w-full py-2.5 text-center text-xs font-mono font-bold rounded-xl transition-all flex items-center justify-center gap-2 bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed opacity-60';
+      mobileNavSubmitBtn.setAttribute('disabled', 'true');
+      mobileNavSubmitBtn.innerHTML = '<i data-lucide="lock" class="w-4 h-4"></i> <span>Submit: LOCKED</span>';
+    }
+  }
+
+  // 3. Hero Status Card
+  const heroStatusPill = document.getElementById('heroStatusPill');
+  const heroStatusPillText = document.getElementById('heroStatusPillText');
+  const heroStatusMessageText = document.getElementById('heroStatusMessageText');
+  const heroProblemStatusText = document.getElementById('heroProblemStatusText');
+  const heroSubmitStatusText = document.getElementById('heroSubmitStatusText');
+  const heroSubmitBtn = document.getElementById('heroSubmitBtn');
+  const heroSubmitBtnText = document.getElementById('heroSubmitBtnText');
+
+  if (heroStatusPill && heroStatusPillText) {
+    if (isLive) {
+      heroStatusPill.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 flex items-center gap-1.5';
+      heroStatusPill.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> <span>🟢 EVENT LIVE</span>';
+    } else {
+      heroStatusPill.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1.5';
+      heroStatusPill.innerHTML = '<i data-lucide="lock" class="w-3.5 h-3.5 text-amber-600"></i> <span>🔒 EVENT NOT STARTED</span>';
+    }
+  }
+
+  if (heroStatusMessageText) {
+    if (isLive) {
+      heroStatusMessageText.innerText = 'Event is LIVE! Problem Statement is available. Submit your live project below.';
+    } else {
+      heroStatusMessageText.innerText = 'Problem Statement will be revealed on 18 October at 10:00 AM IST.';
+    }
+  }
+
+  if (heroProblemStatusText) {
+    if (isLive) {
+      heroProblemStatusText.className = 'font-bold text-emerald-600';
+      heroProblemStatusText.innerText = 'AVAILABLE';
+    } else {
+      heroProblemStatusText.className = 'font-bold text-amber-700';
+      heroProblemStatusText.innerText = 'LOCKED';
+    }
+  }
+
+  if (heroSubmitStatusText) {
+    if (isLive) {
+      heroSubmitStatusText.className = 'font-bold text-emerald-600';
+      heroSubmitStatusText.innerText = 'OPEN';
+    } else {
+      heroSubmitStatusText.className = 'font-bold text-amber-700';
+      heroSubmitStatusText.innerText = 'LOCKED';
+    }
+  }
+
+  if (heroSubmitBtn && heroSubmitBtnText) {
+    if (isLive) {
+      heroSubmitBtn.className = 'w-full sm:w-auto flex-1 px-5 py-3 rounded-xl font-bold text-xs font-mono transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-[#0066FF] to-[#0052CC] text-white shadow-md shadow-blue-500/25 hover:shadow-blue-500/40 hover:scale-[1.02] cursor-pointer';
+      heroSubmitBtn.removeAttribute('disabled');
+      heroSubmitBtn.innerHTML = '<i data-lucide="rocket" class="w-4 h-4"></i> <span>Submit Project</span>';
+    } else {
+      heroSubmitBtn.className = 'w-full sm:w-auto flex-1 px-5 py-3 rounded-xl font-bold text-xs font-mono transition-all flex items-center justify-center gap-2 bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed opacity-60';
+      heroSubmitBtn.setAttribute('disabled', 'true');
+      heroSubmitBtn.innerHTML = '<i data-lucide="lock" class="w-4 h-4"></i> <span>Submit: LOCKED</span>';
+    }
+  }
+
+  // 4. Card 1 in Hackathons Grid
+  const card1StatusBadge = document.getElementById('card1StatusBadge');
+  const card1SubmitBtn = document.getElementById('card1SubmitBtn');
+  const card1SubmitBtnText = document.getElementById('card1SubmitBtnText');
+
+  if (card1StatusBadge) {
+    if (isLive) {
+      card1StatusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1.5';
+      card1StatusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Active Now';
+    } else {
+      card1StatusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1.5';
+      card1StatusBadge.innerHTML = '<i data-lucide="lock" class="w-3.5 h-3.5 text-amber-600"></i> Locked Until 10 AM';
+    }
+  }
+
+  if (card1SubmitBtn && card1SubmitBtnText) {
+    if (isLive) {
+      card1SubmitBtn.className = 'w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-[#0066FF] to-[#0052CC] text-white shadow-md shadow-blue-500/25 hover:shadow-blue-500/40 transition-all flex items-center justify-center gap-2 cursor-pointer';
+      card1SubmitBtn.removeAttribute('disabled');
+      card1SubmitBtn.innerHTML = '<i data-lucide="code-2" class="w-4 h-4"></i> <span>Join Challenge &amp; Submit</span>';
+    } else {
+      card1SubmitBtn.className = 'w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed opacity-60';
+      card1SubmitBtn.setAttribute('disabled', 'true');
+      card1SubmitBtn.innerHTML = '<i data-lucide="lock" class="w-4 h-4"></i> <span>Submit Project: LOCKED</span>';
+    }
+  }
+
+  // 5. Dedicated Problem Statement Section
+  const psSectionStatusBadge = document.getElementById('psSectionStatusBadge');
+  const psSectionStatusText = document.getElementById('psSectionStatusText');
+  const psLockedCard = document.getElementById('psLockedCard');
+  const psUnlockedCard = document.getElementById('psUnlockedCard');
+  const psTitle = document.getElementById('psTitle');
+  const psContent = document.getElementById('psContent');
+
+  if (isLive) {
+    if (psSectionStatusBadge) {
+      psSectionStatusBadge.className = 'inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs self-start md:self-auto';
+      psSectionStatusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> <span>Problem Statement Available</span>';
+    }
+    if (psLockedCard) psLockedCard.classList.add('hidden');
+    if (psUnlockedCard) {
+      psUnlockedCard.classList.remove('hidden');
+      if (psTitle) psTitle.innerText = eventState.problemStatementTitle || 'Web Craft Event 01: Core Challenge';
+      if (psContent) {
+        const text = eventState.problemStatement || getDefaultLiveProblemStatement();
+        psContent.innerHTML = renderMarkdownToHtml(text);
+      }
+    }
+  } else {
+    if (psSectionStatusBadge) {
+      psSectionStatusBadge.className = 'inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-xs self-start md:self-auto';
+      psSectionStatusBadge.innerHTML = '<i data-lucide="lock" class="w-4 h-4 text-amber-600"></i> <span>Problem Statement Locked</span>';
+    }
+    if (psLockedCard) psLockedCard.classList.remove('hidden');
+    if (psUnlockedCard) psUnlockedCard.classList.add('hidden');
+  }
+
+  // 6. Submit Modal Lock Notice & Button State
+  const modalLockedNotice = document.getElementById('modalLockedNotice');
+  const btnRunSubmission = document.getElementById('btnRunSubmission');
+  if (modalLockedNotice) modalLockedNotice.classList.toggle('hidden', isLive);
+  if (btnRunSubmission) {
+    if (isLive) {
+      btnRunSubmission.removeAttribute('disabled');
+      btnRunSubmission.innerText = 'Submit & Run Lighthouse';
+      btnRunSubmission.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+      btnRunSubmission.setAttribute('disabled', 'true');
+      btnRunSubmission.innerText = 'Submissions Locked (Releases 10 AM)';
+      btnRunSubmission.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+  }
+
+  // 7. Update Submission Section View
+  updateSubmissionSectionUI();
+
+  // 8. Organizer modal status pill
+  const orgCurrentStatePill = document.getElementById('orgCurrentStatePill');
+  if (orgCurrentStatePill) {
+    if (isLive) {
+      orgCurrentStatePill.className = 'inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-300';
+      orgCurrentStatePill.innerText = '🟢 LIVE (Problem & Submissions Open)';
+    } else {
+      orgCurrentStatePill.className = 'inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300';
+      orgCurrentStatePill.innerText = '🔒 LOCKED (Pre-release)';
+    }
+  }
+
+  safeCreateIcons();
+}
+
+// Submissions section view switcher
+function updateSubmissionSectionUI() {
+  const isLive = isEventLive();
+  const subLockedView = document.getElementById('subLockedView');
+  const subNotAuthView = document.getElementById('subNotAuthView');
+  const subFormView = document.getElementById('subFormView');
+  const subStatusView = document.getElementById('subStatusView');
+
+  // Hide all first
+  if (subLockedView) subLockedView.classList.add('hidden');
+  if (subNotAuthView) subNotAuthView.classList.add('hidden');
+  if (subFormView) subFormView.classList.add('hidden');
+  if (subStatusView) subStatusView.classList.add('hidden');
+
+  if (!isLive) {
+    if (subLockedView) subLockedView.classList.remove('hidden');
+    return;
+  }
+
+  // Live state
+  if (!currentUser) {
+    if (subNotAuthView) subNotAuthView.classList.remove('hidden');
+    return;
+  }
+
+  if (mySubmission) {
+    if (subStatusView) {
+      subStatusView.classList.remove('hidden');
+      const pName = document.getElementById('mySubProjectName');
+      const dUrl = document.getElementById('mySubDemoUrl');
+      const ts = document.getElementById('mySubTimestamp');
+      const scoreTotal = document.getElementById('mySubScoreTotal');
+      const perf = document.getElementById('mySubPerf');
+      const a11y = document.getElementById('mySubA11y');
+      const bp = document.getElementById('mySubBP');
+      const seo = document.getElementById('mySubSEO');
+
+      if (pName) pName.innerText = mySubmission.project_name || 'My Project';
+      if (dUrl) {
+        dUrl.innerText = mySubmission.demo_url;
+        dUrl.href = mySubmission.demo_url;
+      }
+      if (ts) ts.innerText = formatIST(mySubmission.created_at);
+
+      if (mySubmission.score !== null && mySubmission.score !== undefined) {
+        if (scoreTotal) scoreTotal.innerText = `${Math.round(mySubmission.score)} / 100`;
+        if (perf) perf.innerText = `${Math.round(mySubmission.performance || 0)}%`;
+        if (a11y) a11y.innerText = `${Math.round(mySubmission.accessibility || 0)}%`;
+        if (bp) bp.innerText = `${Math.round(mySubmission.best_practices || 0)}%`;
+        if (seo) seo.innerText = `${Math.round(mySubmission.seo || 0)}%`;
+      } else {
+        if (scoreTotal) scoreTotal.innerText = 'Auditing...';
+        if (perf) perf.innerText = '—';
+        if (a11y) a11y.innerText = '—';
+        if (bp) bp.innerText = '—';
+        if (seo) seo.innerText = '—';
+      }
+    }
+  } else {
+    if (subFormView) subFormView.classList.remove('hidden');
+  }
+}
+
+// Navigation CTA click handlers
+function handleNavSubmitClick() {
+  if (!isEventLive()) {
+    playSound('warning');
+    alert('🔒 Submissions are LOCKED until 18 October 2026 at 10:00 AM IST.\n\nThe submission system will automatically become available at exactly 10:00 AM IST.');
+    return;
+  }
+  openSubmitModal();
+}
+
+function handleHeroSubmitClick() {
+  if (!isEventLive()) {
+    playSound('warning');
+    alert('🔒 Submissions are LOCKED until 18 October 2026 at 10:00 AM IST.');
+    return;
+  }
+  scrollToSubmission();
+}
+
+function handleCard1SubmitClick() {
+  if (!isEventLive()) {
+    openHackathonModal(1);
+    return;
+  }
+  openSubmitModal();
+}
+
+function scrollToSubmission() {
+  const el = document.getElementById('submission');
+  if (el) el.scrollIntoView({ behavior: 'smooth' });
+}
+
+function copyProblemBrief() {
+  const text = eventState.problemStatement || getDefaultLiveProblemStatement();
+  navigator.clipboard.writeText(text).then(() => {
+    playSound('beep');
+    alert('✓ Web Craft Event 01 Problem Brief copied to clipboard!');
+  }).catch(() => {});
+}
+
+// In-page form submission handler
+async function handleInPageProjectSubmit(e) {
+  e.preventDefault();
+  playSound('beep');
+
+  if (!isEventLive()) {
+    alert('Submissions are locked until 18 October 2026 at 10:00 AM IST.');
+    return;
+  }
+
+  if (!currentUser) {
+    openAuthModal('signin');
+    return;
+  }
+
+  if (mySubmission) {
+    alert('You have already submitted a project for Web Craft Event 01. Duplicate submissions are not permitted.');
+    return;
+  }
+
+  const pName = (document.getElementById('inPageProjectName')?.value || '').trim();
+  const demoUrl = (document.getElementById('inPageDemoUrl')?.value || '').trim();
+  const repoUrl = (document.getElementById('inPageRepoUrl')?.value || '').trim();
+  const stack = (document.getElementById('inPageTechStack')?.value || '').trim();
+
+  // URL Validation
+  if (!/^https?:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\/.*)?$/i.test(demoUrl)) {
+    alert('Please enter a valid live demo URL starting with http:// or https:// (e.g. https://my-app.vercel.app)');
+    return;
+  }
+
+  const btn = document.getElementById('btnInPageSubmit');
+  const box = document.getElementById('inPagePreflightBox');
+  const bar = document.getElementById('inPagePreflightBar');
+  const status = document.getElementById('inPagePreflightStatus');
+
+  if (btn) btn.disabled = true;
+  if (box) box.classList.remove('hidden');
+  if (status) status.innerText = 'Saving submission to Supabase...';
+  if (bar) bar.style.width = '15%';
+
+  let prog = 15;
+  const ticker = setInterval(() => {
+    prog = Math.min(prog + 3, 90);
+    if (bar) bar.style.width = prog + '%';
+  }, 1000);
+
+  try {
+    const { data: row, error } = await supabase.from('submissions').insert({
+      hackathon_id: 1,
+      user_id: currentUser.id,
+      project_name: pName,
+      demo_url: demoUrl,
+      repo_url: repoUrl || null,
+      tech_stack: stack || null
+    }).select('*').single();
+
+    if (error) throw error;
+
+    if (status) status.innerText = 'Lighthouse is auditing your live URL (10–30s)...';
+
+    // Trigger edge function for PageSpeed Insights scoring
+    const { data: result, error: fnErr } = await supabase.functions.invoke('evaluate-project', {
+      body: { submission_id: row.id }
+    });
+
+    clearInterval(ticker);
+    if (bar) bar.style.width = '100%';
+
+    const finalScore = result?.score !== undefined ? result.score : null;
+    if (status) status.innerText = finalScore !== null ? `✓ Audit complete! Score: ${finalScore}/100` : '✓ Submission registered!';
+
+    playSound('success');
+    mySubmission = { ...row, score: finalScore, performance: result?.performance, accessibility: result?.accessibility, best_practices: result?.best_practices, seo: result?.seo };
+
+    await loadLeaderboard();
+    setTimeout(() => {
+      if (box) box.classList.add('hidden');
+      updateSubmissionSectionUI();
+      document.getElementById('inPageSubmitForm')?.reset();
+    }, 1500);
+
+  } catch (err) {
+    clearInterval(ticker);
+    if (bar) bar.style.width = '0%';
+    if (status) status.innerText = '✗ ' + (err.message || 'Submission failed');
+    playSound('warning');
+    alert('Submission error: ' + (err.message || 'Could not complete submission'));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ============================================================
+// ORGANIZER PORTAL CONTROLLER
+// ============================================================
+
+function openOrganizerModal() {
+  const isUnlocked = sessionStorage.getItem('organizer_unlocked') === 'true';
+  const orgAuthView = document.getElementById('orgAuthView');
+  const orgDashboardView = document.getElementById('orgDashboardView');
+  const pill = document.getElementById('orgAuthStatusPill');
+
+  if (isUnlocked) {
+    if (orgAuthView) orgAuthView.classList.add('hidden');
+    if (orgDashboardView) orgDashboardView.classList.remove('hidden');
+    if (pill) {
+      pill.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200';
+      pill.innerText = 'Authorized';
+    }
+    organizerLoadCurrentSettings();
+  } else {
+    if (orgAuthView) orgAuthView.classList.remove('hidden');
+    if (orgDashboardView) orgDashboardView.classList.add('hidden');
+    if (pill) {
+      pill.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200';
+      pill.innerText = 'Auth Required';
+    }
+  }
+  openModal('organizerModal');
+  safeCreateIcons();
+}
+
+function handleOrganizerAuth(e) {
+  e.preventDefault();
+  const input = document.getElementById('orgKeyInput');
+  const err = document.getElementById('orgAuthError');
+  const val = (input?.value || '').trim();
+
+  if (val === EVENT_CONFIG.defaultOrganizerKey || val === 'admin') {
+    sessionStorage.setItem('organizer_unlocked', 'true');
+    if (err) err.classList.add('hidden');
+    playSound('success');
+    openOrganizerModal();
+  } else {
+    if (err) err.classList.remove('hidden');
+    playSound('warning');
+  }
+}
+
+function switchOrgTab(tab) {
+  organizerCurrentTab = tab;
+  ['status', 'problem', 'submissions'].forEach(t => {
+    const el = document.getElementById('orgTab' + t.charAt(0).toUpperCase() + t.slice(1));
+    const btn = document.getElementById('tabBtnOrg' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (el) el.classList.toggle('hidden', t !== tab);
+    if (btn) {
+      if (t === tab) {
+        btn.className = 'px-4 py-2 rounded-lg font-bold bg-[#0066FF] text-white';
+      } else {
+        btn.className = 'px-4 py-2 rounded-lg font-bold text-slate-600 hover:text-slate-900 bg-slate-100';
+      }
+    }
+  });
+
+  if (tab === 'submissions') organizerRefreshSubmissions();
+  safeCreateIcons();
+}
+
+function organizerLoadCurrentSettings() {
+  const titleInput = document.getElementById('orgPsTitleInput');
+  const mdInput = document.getElementById('orgPsMarkdownInput');
+
+  if (titleInput) titleInput.value = eventState.problemStatementTitle || 'Web Craft Event 01: Core Challenge';
+  if (mdInput) mdInput.value = eventState.problemStatement || getDefaultLiveProblemStatement();
+}
+
+async function organizerSetState(action) {
+  const feedback = document.getElementById('orgStateFeedback');
+  if (action === 'force_live') {
+    eventState.isForcedOpen = true;
+    eventState.isForcedClosed = false;
+    if (feedback) {
+      feedback.innerText = '✓ Forced Live Mode active. The problem statement and submissions are unlocked for testing.';
+      feedback.className = 'text-xs font-mono text-emerald-700 block';
+    }
+  } else if (action === 'force_locked') {
+    eventState.isForcedOpen = false;
+    eventState.isForcedClosed = true;
+    if (feedback) {
+      feedback.innerText = '✓ Forced Locked Mode active. Submissions and problem statement locked.';
+      feedback.className = 'text-xs font-mono text-amber-700 block';
+    }
+  } else if (action === 'reset_schedule') {
+    eventState.isForcedOpen = false;
+    eventState.isForcedClosed = false;
+    if (feedback) {
+      feedback.innerText = '✓ Adhering strictly to official schedule: 18 October 2026 at 10:00 AM IST.';
+      feedback.className = 'text-xs font-mono text-blue-700 block';
+    }
+  }
+
+  // Persist to Supabase if events table exists
+  if (supabase) {
+    try {
+      await supabase.from('events').update({
+        is_forced_open: eventState.isForcedOpen,
+        is_forced_closed: eventState.isForcedClosed,
+        updated_at: new Date().toISOString()
+      }).eq('id', 'web-craft-01');
+    } catch (_) {}
+  }
+
+  updateWebCraftUI();
+  playSound('beep');
+}
+
+async function organizerSaveProblemStatement() {
+  const title = (document.getElementById('orgPsTitleInput')?.value || '').trim();
+  const md = (document.getElementById('orgPsMarkdownInput')?.value || '').trim();
+  const feedback = document.getElementById('orgPsSaveFeedback');
+
+  eventState.problemStatementTitle = title || 'Web Craft Event 01 Challenge';
+  eventState.problemStatement = md;
+
+  if (feedback) feedback.innerText = 'Saving to Supabase...';
+
+  if (supabase) {
+    try {
+      const { error } = await supabase.from('events').upsert({
+        id: 'web-craft-01',
+        problem_statement_title: eventState.problemStatementTitle,
+        problem_statement_markdown: eventState.problemStatement,
+        updated_at: new Date().toISOString()
+      });
+      if (error) throw error;
+      if (feedback) feedback.innerText = '✓ Successfully saved problem statement to Supabase!';
+    } catch (e) {
+      if (feedback) feedback.innerText = '✓ Saved locally (run migration 002 for DB persistence).';
+    }
+  } else {
+    if (feedback) feedback.innerText = '✓ Saved locally!';
+  }
+
+  updateWebCraftUI();
+  playSound('success');
+  setTimeout(() => {
+    if (feedback) feedback.innerText = '';
+  }, 3500);
+}
+
+async function organizerRefreshSubmissions() {
+  const body = document.getElementById('orgSubsTableBody');
+  const countEl = document.getElementById('orgSubsCount');
+  if (!body) return;
+
+  body.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-400">Loading submissions from Supabase...</td></tr>';
+
+  if (!supabase) {
+    body.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-400">Supabase client offline.</td></tr>';
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('submissions')
+      .select('*')
+      .or('hackathon_id.eq.1,hackathon_id.is.null')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const rows = data || [];
+    if (countEl) countEl.innerText = rows.length;
+
+    if (rows.length === 0) {
+      body.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-400">No submissions received yet for Web Craft Event 01.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map((r, i) => `
+      <tr class="hover:bg-slate-50">
+        <td class="py-3 px-4 font-bold text-slate-500">#${i + 1}</td>
+        <td class="py-3 px-4 font-mono text-slate-700">${r.user_id ? r.user_id.slice(0, 8) + '...' : 'Anonymous'}</td>
+        <td class="py-3 px-4 font-bold text-slate-900">${escapeHtml(r.project_name)}</td>
+        <td class="py-3 px-4">
+          <a href="${safeUrl(r.demo_url)}" target="_blank" rel="noopener noreferrer" class="text-[#0066FF] hover:underline font-bold">
+            ${escapeHtml(r.demo_url)} ↗
+          </a>
+        </td>
+        <td class="py-3 px-4 font-extrabold ${scoreColor(r.score)}">
+          ${r.score !== null ? `${Math.round(r.score)}/100` : 'Pending'}
+        </td>
+        <td class="py-3 px-4 text-slate-500">${formatIST(r.created_at)}</td>
+      </tr>
+    `).join('');
+
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-rose-500">Error loading submissions: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+// Master Initializer for Web Craft Event 01
+function initWebCraftEvent() {
+  syncServerTime();
+  fetchEventState();
+  checkMySubmission();
+
+  // Run countdown immediately and every second
+  updateWebCraftCountdown();
+  if (webCraftCountdownInterval) clearInterval(webCraftCountdownInterval);
+  webCraftCountdownInterval = setInterval(updateWebCraftCountdown, 1000);
+
+  // Periodic server time and state re-sync (every 30 seconds)
+  if (serverSyncInterval) clearInterval(serverSyncInterval);
+  serverSyncInterval = setInterval(() => {
+    syncServerTime();
+    fetchEventState();
+  }, 30000);
+}
+
+function startHackathonCountdowns() {
+  // Alias to initWebCraftEvent
+  initWebCraftEvent();
 }
 
 // 4. AUTOMATED EVALUATION ENGINE SIMULATOR

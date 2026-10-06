@@ -154,3 +154,129 @@ footer .brand-e-bars > span {
 .status-pulsing {
   animation: status-pulse 1.4s ease-in-out infinite;
 }
+
+/* ── Web Craft Event 01 Custom Aesthetics ────────────────────────────────── */
+.locked-glow-ring {
+  box-shadow: 0 0 0 0 rgba(0, 102, 255, 0.4);
+  animation: lock-pulse 2.2s infinite;
+}
+
+@keyframes lock-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 102, 255, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 16px rgba(0, 102, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 102, 255, 0);
+  }
+}
+
+/* Blueprint grid for locked problem statement */
+.blueprint-pattern {
+  background-color: #f8fafc;
+  background-image: 
+    linear-gradient(rgba(0, 102, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 102, 255, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Shimmer animation for encrypted wireframe placeholders */
+@keyframes wireframe-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.wireframe-shimmer {
+  background: linear-gradient(90deg, rgba(226, 232, 240, 0.6) 25%, rgba(241, 245, 249, 0.9) 50%, rgba(226, 232, 240, 0.6) 75%);
+  background-size: 200% 100%;
+  animation: wireframe-shimmer 2.5s infinite;
+}
+
+/* Problem statement markdown styling */
+.ps-markdown {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #1e293b;
+  line-height: 1.7;
+}
+
+.ps-markdown h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #0a0f1d;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  letter-spacing: -0.02em;
+}
+
+.ps-markdown h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0a0f1d;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.35rem;
+}
+
+.ps-markdown h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.ps-markdown p {
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+.ps-markdown ul, .ps-markdown ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.ps-markdown li {
+  margin-bottom: 0.35rem;
+  list-style-type: disc;
+}
+
+.ps-markdown ol li {
+  list-style-type: decimal;
+}
+
+.ps-markdown code {
+  background: #f1f5f9;
+  color: #0066ff;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.35rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  border: 1px solid #e2e8f0;
+}
+
+.ps-markdown pre {
+  background: #0a0f1d;
+  color: #e2e8f0;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.ps-markdown blockquote {
+  border-left: 4px solid #0066ff;
+  padding-left: 1rem;
+  font-style: italic;
+  color: #475569;
+  margin: 1rem 0;
+  background: #f0f6ff;
+  padding: 0.75rem 1rem;
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
