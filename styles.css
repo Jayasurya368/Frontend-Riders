@@ -144,7 +144,7 @@ footer .brand-e-bars > span {
 
 
 /* ── Evaluation status pill on submit modal ─────────────────────────────────
-   Pulse animation for the "Lighthouse is auditing..." status text.          */
+   Pulse animation for the audit status text.                                */
 
 @keyframes status-pulse {
   0%, 100% { opacity: 1; }

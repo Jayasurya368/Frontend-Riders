@@ -689,7 +689,7 @@ const EVENT_CONFIG = {
     'Submissions must be original work created during the event timeframe.',
     'Submit a valid, publicly accessible deployed website URL (HTTPS).',
     'Application must be responsive across mobile, tablet, and desktop viewports.',
-    'Automated Lighthouse evaluation tests Performance, Accessibility, Best Practices, and SEO.',
+    'Automated evaluation tests Performance, Accessibility, Best Practices, and SEO.',
     'Only one submission per registered participant is permitted.'
   ]
 };
@@ -893,7 +893,7 @@ function getDefaultLiveProblemStatement() {
 Welcome to **Web Craft – Event 01**, the premier frontend speed, craft, and responsiveness challenge by Frontend Riders.
 
 ### Objective
-Design and implement a responsive, highly accessible, and visually stunning web experience meeting production-grade Core Web Vitals and Lighthouse benchmarks.
+Design and implement a responsive, highly accessible, and visually stunning web experience meeting production-grade Core Web Vitals benchmarks.
 
 ### Core Technical Requirements
 - **Responsive Layout**: Flawless visual hierarchy across Mobile (375px+), Tablet (768px+), and Desktop (1280px+) viewports.
@@ -904,7 +904,7 @@ Design and implement a responsive, highly accessible, and visually stunning web 
 ### Submission Instructions
 1. Deploy your live project to a public host (**Vercel**, **Netlify**, **GitHub Pages**, or **Cloudflare Pages**).
 2. Enter your live HTTPS URL into the **Submit Project** section below.
-3. Your submission will immediately be evaluated by the automated Lighthouse benchmark engine.`;
+3. Your submission will immediately be evaluated and your score will be posted to the live leaderboard.`;
 }
 
 // Automatic transition when release time is reached
@@ -1165,7 +1165,7 @@ function updateWebCraftUI() {
   if (btnRunSubmission) {
     if (isLive) {
       btnRunSubmission.removeAttribute('disabled');
-      btnRunSubmission.innerText = 'Submit & Run Lighthouse';
+      btnRunSubmission.innerText = 'Submit & Run Evaluation';
       btnRunSubmission.classList.remove('opacity-50', 'cursor-not-allowed');
     } else {
       btnRunSubmission.setAttribute('disabled', 'true');
@@ -1354,7 +1354,7 @@ async function handleInPageProjectSubmit(e) {
 
     if (error) throw error;
 
-    if (status) status.innerText = 'Lighthouse is auditing your live URL (10–30s)...';
+    if (status) status.innerText = 'Evaluating your live URL (10–30s)...';
 
     // Trigger edge function for PageSpeed Insights scoring
     const { data: result, error: fnErr } = await supabase.functions.invoke('evaluate-project', {
@@ -1878,18 +1878,18 @@ const HACKATHON_DATA = {
       "Build a complete multi-tab analytics dashboard component.",
       "Include keyboard navigation shortcuts (Command/Ctrl + K).",
       "TypeScript strict mode enforced with zero 'any' types.",
-      "Must score > 95/100 on automated FrontendRiders Lighthouse audit."
+      "Must score > 95/100 on automated FrontendRiders performance audit."
     ]
   },
   3: {
     title: "Accessibility & Speed Sprint",
     tag: "Vercel Sponsored",
     prize: "$2,000",
-    stack: ["Vanilla JS", "Lighthouse CLI", "Web Vitals"],
+    stack: ["Vanilla JS", "Performance CLI", "Web Vitals"],
     deadline: "Starts October 22",
     rules: [
       "WCAG 2.1 AAA Accessibility Compliance.",
-      "100/100 score across all 4 Lighthouse categories.",
+      "100/100 score across all 4 evaluation categories.",
       "Sub-50ms Interaction to Next Paint (INP).",
       "No heavy external dependencies allowed."
     ]
@@ -2024,7 +2024,7 @@ function openRiderModal(userId) {
     <div class="py-6 space-y-4 text-xs font-mono">
       <p class="text-slate-600 font-sans text-sm">Best project: <strong>${escapeHtml(rider.project_name)}</strong> · ${rider.projects_count} evaluated project${rider.projects_count === 1 ? '' : 's'}</p>
       <div class="grid grid-cols-2 gap-4">
-        ${cell('LIGHTHOUSE SCORE / 100', rider.score)}
+        ${cell('OVERALL SCORE / 100', rider.score)}
         ${cell('PERFORMANCE', rider.performance)}
         ${cell('ACCESSIBILITY', rider.accessibility)}
         ${cell('BEST PRACTICES', rider.best_practices)}
@@ -2066,7 +2066,7 @@ async function handleProjectSubmit(e) {
 
   preflight.classList.remove('hidden');
   btn.disabled = true;
-  btn.innerText = 'Running Lighthouse...';
+  btn.innerText = 'Running Evaluation...';
   bar.style.width = '10%';
   setStatus('Saving your submission...');
 
@@ -2083,7 +2083,7 @@ async function handleProjectSubmit(e) {
     }).select('id').single();
     if (error) throw error;
 
-    setStatus('Lighthouse is auditing your live demo (10–40s)...');
+    setStatus('Evaluating your live demo (10–40s)...');
     const { data: result, error: fnError } = await supabase.functions.invoke('evaluate-project', { body: { submission_id: row.id } });
     if (fnError) {
       let msg = fnError.message;
@@ -2093,7 +2093,7 @@ async function handleProjectSubmit(e) {
 
     clearInterval(ticker);
     bar.style.width = '100%';
-    setStatus('✓ Lighthouse score: ' + result.score + ' / 100', 'text-emerald-600 font-bold');
+    setStatus('✓ Score: ' + result.score + ' / 100', 'text-emerald-600 font-bold');
     playSound('success');
 
     await loadLeaderboard();
@@ -2112,7 +2112,7 @@ async function handleProjectSubmit(e) {
     playSound('warning');
   } finally {
     btn.disabled = false;
-    btn.innerText = 'Submit & Run Lighthouse';
+    btn.innerText = 'Submit & Run Evaluation';
   }
 }
 
