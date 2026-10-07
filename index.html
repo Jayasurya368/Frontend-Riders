@@ -73,6 +73,34 @@
     </button>
   </div>
 
+  <!-- Persistent Admin Test Mode Safety Banner (Visible ONLY when Test Mode is Active) -->
+  <div id="adminTestModeBanner" class="hidden bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 text-white px-4 py-2.5 shadow-xl border-b-2 border-amber-300 z-50 sticky top-0 transition-all font-mono text-xs">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center flex-wrap gap-2 sm:gap-3">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-black/40 text-amber-200 border border-amber-300/40 font-bold uppercase tracking-wider animate-pulse">
+          <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-300"></i>
+          ⚠ ADMIN TEST MODE
+        </span>
+        <span class="text-amber-100 hidden sm:inline">•</span>
+        <span id="testBannerStateLabel" class="font-bold text-white bg-black/20 px-2 py-0.5 rounded">
+          SIMULATION: PRE-EVENT (18 Oct 9:59 AM)
+        </span>
+        <span class="text-amber-100 hidden sm:inline">•</span>
+        <span id="testBannerUserLabel" class="text-amber-100 text-[11px]">
+          Participant: <strong class="text-white">test-runner-01</strong> (Isolated)
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="openOrganizerModal('testMode')" class="px-3 py-1 rounded-lg bg-black/30 hover:bg-black/50 text-white border border-white/20 transition-all font-bold flex items-center gap-1">
+          <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i> Test Dashboard
+        </button>
+        <button onclick="exitAdminTestMode()" class="px-3 py-1 rounded-lg bg-white text-amber-900 hover:bg-amber-100 font-extrabold transition-all shadow-sm flex items-center gap-1">
+          <i data-lucide="log-out" class="w-3.5 h-3.5 text-amber-800"></i> Exit Test Mode
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- 1. NAVIGATION BAR -->
   <header class="sticky top-0 z-40 w-full backdrop-blur-xl bg-white/90 border-b border-slate-200/80 shadow-sm shadow-blue-500/5">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
@@ -656,9 +684,16 @@
               <p class="text-xs font-mono text-slate-500">Live URL validation &amp; automated audit</p>
             </div>
           </div>
-          <span class="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            Submit: OPEN
+          <span id="subFormAttemptBadge" class="px-3 py-1 rounded-full text-xs font-mono font-bold bg-blue-50 text-[#0066FF] border border-blue-200">
+            Attempt <span id="currentAttemptDisplay">1</span> of 2
           </span>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-blue-50/60 border border-blue-200 text-xs font-mono text-slate-700 flex items-start gap-2.5">
+          <i data-lucide="info" class="w-4 h-4 text-[#0066FF] shrink-0 mt-0.5"></i>
+          <div>
+            <strong class="text-[#0066FF]">Ruleset:</strong> Each participant may submit up to <strong>2 times</strong> during the 6-hour competition window. Your final score is the <strong>HIGHEST (MAX)</strong> score among valid attempts.
+          </div>
         </div>
 
         <form id="inPageSubmitForm" onsubmit="handleInPageProjectSubmit(event)" class="space-y-5 text-sm">
@@ -691,7 +726,7 @@
           <!-- Pre-flight scan simulation bar -->
           <div id="inPagePreflightBox" class="hidden p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs font-mono">
             <div class="flex justify-between text-slate-600">
-              <span>Automated Check:</span>
+              <span>Automated Evaluation Pipeline:</span>
               <span id="inPagePreflightStatus" class="text-[#0066FF] font-bold">Saving submission...</span>
             </div>
             <div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
@@ -705,65 +740,78 @@
         </form>
       </div>
 
-      <!-- STATE 4: Participant Has Already Submitted: Official Submission Status Card -->
-      <div id="subStatusView" class="hidden max-w-2xl mx-auto rounded-3xl bg-white border border-emerald-200 p-6 sm:p-10 shadow-xl space-y-6">
-        <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+      <!-- STATE 4: Participant Has Submitted: Official Submissions Status & Best Score Card -->
+      <div id="subStatusView" class="hidden max-w-3xl mx-auto rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-xl space-y-6">
+        <div class="flex flex-wrap items-center justify-between pb-4 border-b border-slate-100 gap-3">
           <div class="flex items-center gap-3">
             <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shadow-xs">
               <i data-lucide="check-circle-2" class="w-7 h-7"></i>
             </div>
             <div>
-              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                OFFICIAL SUBMISSION CONFIRMED
+              <span id="mySubAttemptsCountBadge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                1 / 2 SUBMISSIONS COMPLETED
               </span>
-              <h3 class="text-xl font-extrabold text-slate-900 mt-0.5" id="mySubProjectName">Project Name</h3>
+              <h3 class="text-xl font-extrabold text-slate-900 mt-0.5">Your Web Craft 01 Scorecard</h3>
             </div>
           </div>
-          <span class="text-xs font-mono text-slate-500">Event 01</span>
+          <div class="text-right">
+            <span class="text-xs font-mono text-slate-400 block">Competition Rubric</span>
+            <span class="text-xs font-mono font-bold text-[#0066FF]">100 Points Total</span>
+          </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
-          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-            <span class="text-slate-400 block text-[10px] uppercase">Live Deployed URL</span>
-            <a id="mySubDemoUrl" href="#" target="_blank" rel="noopener noreferrer" class="font-bold text-[#0066FF] hover:underline truncate block mt-0.5">
-              https://...
+        <!-- Best Competition Score Highlight (MAX Logic) -->
+        <div id="mySubBestScoreHighlight" class="p-5 rounded-2xl bg-gradient-to-r from-blue-600 via-[#0052CC] to-indigo-700 text-white shadow-md space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="p-1 rounded-lg bg-white/20 text-white"><i data-lucide="trophy" class="w-4 h-4"></i></span>
+              <span class="text-xs font-mono font-bold tracking-wide uppercase text-blue-100">Official Competition Score</span>
+            </div>
+            <span class="text-[11px] font-mono bg-black/20 text-blue-100 px-2.5 py-0.5 rounded-full border border-white/10">
+              Rule: MAX(Attempt Scores)
+            </span>
+          </div>
+          <div class="flex items-baseline justify-between pt-1">
+            <div>
+              <div id="mySubBestScoreValue" class="text-3xl sm:text-4xl font-black font-mono tracking-tight">-- / 100</div>
+              <div id="mySubBestAttemptLabel" class="text-xs font-mono text-blue-200 mt-0.5">Determined by highest evaluated attempt</div>
+            </div>
+            <a href="#leaderboard" class="px-4 py-2 rounded-xl bg-white text-[#0066FF] hover:bg-blue-50 font-mono font-bold text-xs shadow-sm transition-all flex items-center gap-1.5">
+              <i data-lucide="medal" class="w-3.5 h-3.5 text-amber-500"></i> View Rank
             </a>
           </div>
-          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-            <span class="text-slate-400 block text-[10px] uppercase">Submission Timestamp</span>
-            <span id="mySubTimestamp" class="font-bold text-slate-800 block mt-0.5">--</span>
+        </div>
+
+        <!-- List of Submitted Attempts -->
+        <div class="space-y-4">
+          <div class="text-xs font-mono font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+            <span>Evaluated Attempts (<span id="mySubAttemptCountNum">1</span>/2)</span>
+            <span class="text-[11px] text-slate-400 lowercase font-normal">Scores verified by automated pipeline</span>
+          </div>
+          <div id="mySubAttemptsContainer" class="space-y-4">
+            <!-- Dynamically populated attempt cards -->
           </div>
         </div>
 
-        <!-- Score Breakdown -->
-        <div class="p-5 rounded-2xl bg-blue-50/60 border border-blue-200 space-y-3">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-mono font-bold text-slate-700">Evaluation Grade:</span>
-            <span id="mySubScoreTotal" class="text-2xl font-black font-mono text-[#0066FF]">-- / 100</span>
+        <!-- Action / Second Attempt Trigger Banner -->
+        <div id="secondAttemptPromptBox" class="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+          <div>
+            <strong class="text-slate-800 block font-sans text-sm">Have an improved version?</strong>
+            <span class="text-slate-500">You have 1 submission attempt remaining. If it scores higher, it automatically replaces your final score.</span>
           </div>
-          <div class="grid grid-cols-4 gap-2 text-center text-xs font-mono">
-            <div class="p-2 bg-white rounded-lg border border-blue-100">
-              <div class="text-[10px] text-slate-500">PERF</div>
-              <div id="mySubPerf" class="font-bold text-slate-800">--</div>
-            </div>
-            <div class="p-2 bg-white rounded-lg border border-blue-100">
-              <div class="text-[10px] text-slate-500">A11Y</div>
-              <div id="mySubA11y" class="font-bold text-slate-800">--</div>
-            </div>
-            <div class="p-2 bg-white rounded-lg border border-blue-100">
-              <div class="text-[10px] text-slate-500">BEST PRAC</div>
-              <div id="mySubBP" class="font-bold text-slate-800">--</div>
-            </div>
-            <div class="p-2 bg-white rounded-lg border border-blue-100">
-              <div class="text-[10px] text-slate-500">SEO</div>
-              <div id="mySubSEO" class="font-bold text-slate-800">--</div>
-            </div>
-          </div>
+          <button onclick="toggleSecondAttemptForm()" id="btnOpenAttempt2" class="px-4 py-2 rounded-xl font-bold bg-gradient-to-r from-[#0066FF] to-[#0052CC] text-white shadow-sm hover:shadow hover:scale-[1.02] transition-all flex items-center gap-1.5 shrink-0">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Submit Attempt #2
+          </button>
         </div>
 
-        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-600 flex items-center justify-between">
-          <span class="flex items-center gap-1.5"><i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i> Verified in Supabase. Duplicate submissions locked.</span>
-          <a href="#leaderboard" class="font-bold text-[#0066FF] hover:underline">View on Leaderboard &gt;</a>
+        <div id="maxAttemptsReachedNotice" class="hidden p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs font-mono text-emerald-800 flex items-center gap-2">
+          <i data-lucide="shield-check" class="w-4 h-4 text-emerald-600 shrink-0"></i>
+          <span>All 2 submission attempts completed. Your highest evaluated score is locked as your final competition entry.</span>
+        </div>
+
+        <div id="eventEndedSubNotice" class="hidden p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-mono text-amber-900 flex items-center gap-2">
+          <i data-lucide="clock" class="w-4 h-4 text-amber-600 shrink-0"></i>
+          <span>Web Craft Event 01 ended at 4:00 PM IST. Submissions are closed. Existing evaluation scores remain final.</span>
         </div>
       </div>
 
@@ -1184,10 +1232,13 @@
       <!-- STEP 2: Organizer Dashboard (Unlocked) -->
       <div id="orgDashboardView" class="hidden space-y-6">
         <!-- Navigation Tabs -->
-        <div class="flex items-center gap-2 border-b border-slate-200 pb-3 font-mono text-xs">
+        <div class="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3 font-mono text-xs">
           <button onclick="switchOrgTab('status')" id="tabBtnOrgStatus" class="px-4 py-2 rounded-lg font-bold bg-[#0066FF] text-white">Event Status</button>
           <button onclick="switchOrgTab('problem')" id="tabBtnOrgProblem" class="px-4 py-2 rounded-lg font-bold text-slate-600 hover:text-slate-900 bg-slate-100">Problem Statement</button>
           <button onclick="switchOrgTab('submissions')" id="tabBtnOrgSubs" class="px-4 py-2 rounded-lg font-bold text-slate-600 hover:text-slate-900 bg-slate-100">Participant Submissions</button>
+          <button onclick="switchOrgTab('testMode')" id="tabBtnOrgTestMode" class="px-4 py-2 rounded-lg font-bold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 flex items-center gap-1.5 transition-all">
+            <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-amber-600"></i> Admin Test Mode &amp; Suite
+          </button>
         </div>
 
         <!-- TAB 1: Event Status & Live Override -->
@@ -1284,6 +1335,177 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- TAB 4: SECURE ADMIN TEST MODE & 12-POINT VERIFICATION SUITE -->
+        <div id="orgTabTestMode" class="hidden space-y-6">
+          <!-- Production Safety & Status Banner -->
+          <div class="p-5 rounded-2xl bg-gradient-to-br from-amber-50 via-orange-50/50 to-amber-100/50 border-2 border-amber-300 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5">
+                <span class="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shadow-sm">
+                  <i data-lucide="shield-alert" class="w-5 h-5"></i>
+                </span>
+                <div>
+                  <h4 class="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                    Organizer Secure Admin Test Mode
+                    <span id="testModeStatusBadge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200 text-slate-700">
+                      INACTIVE
+                    </span>
+                  </h4>
+                  <p class="text-xs text-slate-600 font-sans">Simulate event lifecycle points &amp; run all 12 platform verification tests without affecting production.</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 font-mono text-xs">
+                <button id="btnToggleAdminTestMode" onclick="toggleAdminTestMode()" class="px-4 py-2 rounded-xl font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-md flex items-center gap-1.5 transition-all">
+                  <i data-lucide="power" class="w-3.5 h-3.5"></i> Enable Admin Test Mode
+                </button>
+              </div>
+            </div>
+
+            <!-- Safety Commitments Guarantee -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-amber-200/80 text-[11px] font-mono text-amber-900">
+              <div class="flex items-center gap-1.5">
+                <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-600 shrink-0"></i>
+                <span>Real schedule locked (18 Oct 10 AM - 4 PM)</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-600 shrink-0"></i>
+                <span>Production records protected (Zero edit/delete)</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-600 shrink-0"></i>
+                <span>Test records isolated (is_test = true)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 1: Lifecycle Simulation Points (The 6 Stages) -->
+          <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h5 class="font-bold text-xs font-mono uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                  <i data-lucide="play-circle" class="w-4 h-4 text-[#0066FF]"></i> Event Lifecycle Simulator
+                </h5>
+                <p class="text-xs text-slate-500 font-sans mt-0.5">Select any point in the event lifecycle to immediately simulate the frontend and backend state:</p>
+              </div>
+              <span id="activeSimLabel" class="text-xs font-mono font-bold text-[#0066FF] px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200">
+                Current: Official Production Clock
+              </span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 font-mono text-xs">
+              <button onclick="setSimulatedLifecycle('pre_event')" id="btnSimPreEvent" class="p-3 rounded-xl bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-[#0066FF] text-left transition-all group">
+                <div class="font-bold text-slate-800 group-hover:text-[#0066FF] flex items-center justify-between">
+                  <span>1. PRE-EVENT</span>
+                  <span class="text-[10px] text-amber-700 font-normal">9:59 AM IST</span>
+                </div>
+                <div class="text-[11px] text-slate-500 mt-1">Status: UPCOMING | Problem: Locked | Submit: Disabled</div>
+              </button>
+
+              <button onclick="setSimulatedLifecycle('event_start')" id="btnSimEventStart" class="p-3 rounded-xl bg-white hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-500 text-left transition-all group">
+                <div class="font-bold text-slate-800 group-hover:text-emerald-700 flex items-center justify-between">
+                  <span>2. EVENT START — 10:00 AM</span>
+                  <span class="text-[10px] text-emerald-700 font-normal">10:00 AM IST</span>
+                </div>
+                <div class="text-[11px] text-slate-500 mt-1">Status: LIVE | Problem: Available | Submit: Enabled</div>
+              </button>
+
+              <button onclick="setSimulatedLifecycle('during_event')" id="btnSimDuringEvent" class="p-3 rounded-xl bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-[#0066FF] text-left transition-all group">
+                <div class="font-bold text-slate-800 group-hover:text-[#0066FF] flex items-center justify-between">
+                  <span>3. DURING EVENT</span>
+                  <span class="text-[10px] text-blue-700 font-normal">12:00 PM IST</span>
+                </div>
+                <div class="text-[11px] text-slate-500 mt-1">Status: LIVE | Active Submission Window (4h remain)</div>
+              </button>
+
+              <button onclick="setSimulatedLifecycle('first_sub')" id="btnSimFirstSub" class="p-3 rounded-xl bg-white hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-500 text-left transition-all group">
+                <div class="font-bold text-slate-800 group-hover:text-indigo-700 flex items-center justify-between">
+                  <span>4. 1ST SUBMISSION</span>
+                  <span class="text-[10px] text-indigo-700 font-normal">Attempt #1 Saved</span>
+                </div>
+                <div class="text-[11px] text-slate-500 mt-1">Score: 82/100 | Count: 1/2 | Submit #2 Open</div>
+              </button>
+
+              <button onclick="setSimulatedLifecycle('second_sub')" id="btnSimSecondSub" class="p-3 rounded-xl bg-white hover:bg-purple-50/60 border border-slate-200 hover:border-purple-500 text-left transition-all group">
+                <div class="font-bold text-slate-800 group-hover:text-purple-700 flex items-center justify-between">
+                  <span>5. 2ND SUBMISSION</span>
+                  <span class="text-[10px] text-purple-700 font-normal">Attempt #2 Saved</span>
+                </div>
+                <div class="text-[11px] text-slate-500 mt-1">Score: 91/100 | Count: 2/2 | Final MAX=91 | Locked</div>
+              </button>
+
+              <button onclick="setSimulatedLifecycle('event_end')" id="btnSimEventEnd" class="p-3 rounded-xl bg-white hover:bg-rose-50/60 border border-slate-200 hover:border-rose-500 text-left transition-all group">
+                <div class="font-bold text-slate-800 group-hover:text-rose-700 flex items-center justify-between">
+                  <span>6. EVENT END — 4:00 PM</span>
+                  <span class="text-[10px] text-rose-700 font-normal">4:00 PM IST</span>
+                </div>
+                <div class="text-[11px] text-slate-500 mt-1">Status: ENDED | Submit: Disabled | Final Scores Stand</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Section 2: Isolated Test Account & Clean Reset -->
+          <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 font-mono text-xs">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <span class="text-[10px] text-slate-400 uppercase font-bold block">Current Isolated Test Participant</span>
+                <span id="testAccountInfo" class="font-bold text-slate-800 text-sm">test-organizer-01@frontendriders.test</span>
+                <span class="text-[11px] text-slate-500 block">UUID: <code id="testAccountUuid">test-rider-org-isolated</code> (Safe sandbox)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="switchTestAccount()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold transition-all">
+                  Switch Test Account
+                </button>
+                <button onclick="resetTestData()" id="btnResetTestData" class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold transition-all flex items-center gap-1.5 shadow-sm">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> RESET TEST DATA
+                </button>
+              </div>
+            </div>
+            <div id="resetFeedback" class="hidden text-xs text-emerald-700 font-mono"></div>
+          </div>
+
+          <!-- Section 3: 12-Point Test Dashboard & Automated Runner -->
+          <div class="space-y-4 font-mono text-xs">
+            <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-100 p-4 rounded-2xl border border-slate-200">
+              <div>
+                <h5 class="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                  <span>12-Point Operational &amp; Security Test Suite</span>
+                  <span id="testSuiteBadge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-200 text-slate-700">
+                    0 / 12 TESTS RUN
+                  </span>
+                </h5>
+                <p class="text-xs text-slate-500 font-sans mt-0.5">Automated validation of all event phases, submission limits, MAX score rubric, clock security, and browser tests.</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="runAllAdminTests()" id="btnRunAllAdminTests" class="px-4 py-2 rounded-xl font-bold bg-[#0066FF] hover:bg-[#0052CC] text-white shadow-md flex items-center gap-1.5 transition-all cursor-pointer">
+                  <i data-lucide="play" class="w-3.5 h-3.5 fill-white"></i> RUN ALL 12 TESTS
+                </button>
+              </div>
+            </div>
+
+            <!-- Test Results Table -->
+            <div class="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
+              <table class="w-full text-left text-xs font-mono">
+                <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
+                  <tr>
+                    <th class="py-3 px-4 w-12">#</th>
+                    <th class="py-3 px-4 w-48">TEST NAME</th>
+                    <th class="py-3 px-4 w-28">RESULT</th>
+                    <th class="py-3 px-4">VERIFICATION DETAILS &amp; AUDIT LOG</th>
+                  </tr>
+                </thead>
+                <tbody id="adminTestTableBody" class="divide-y divide-slate-100">
+                  <!-- Populated by JS test runner -->
+                  <tr>
+                    <td colspan="4" class="py-6 text-center text-slate-400">
+                      Click <strong>"RUN ALL 12 TESTS"</strong> above to execute the automated verification suite.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
