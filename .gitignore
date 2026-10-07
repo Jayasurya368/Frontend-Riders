@@ -1,0 +1,80 @@
+# ============================================================
+# FrontendRiders — Production .gitignore
+# Prevents leaking secrets, keys, local environments, and build artifacts
+# ============================================================
+
+# ── 1. Secrets & Environment Variables (CRITICAL) ────────────
+# Never commit real API keys, Supabase service roles, or env files
+.env
+.env.*
+!.env.example
+*.env
+*.env.local
+.env.production
+.env.development
+.env.test
+
+# ── 2. Secrets, Keys & Certificates ──────────────────────────
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+id_rsa
+id_ecdsa
+id_ed25519
+secrets/
+private/
+
+# ── 3. Dependencies ──────────────────────────────────────────
+node_modules/
+jspm_packages/
+.pnp
+.pnp.js
+
+# ── 4. Build Artifacts & Deployments ─────────────────────────
+dist/
+build/
+out/
+.vercel
+.output/
+
+# ── 5. Supabase CLI & Local DB State ─────────────────────────
+.temp/
+supabase/.temp/
+supabase/.branches/
+supabase/.env*
+!supabase/.env.example
+
+# ── 6. Logs & Debugging ──────────────────────────────────────
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── 7. Testing & Automation Artifacts ────────────────────────
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+coverage/
+
+# ── 8. OS & Editor Artifacts ─────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# IDE & Editor files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
